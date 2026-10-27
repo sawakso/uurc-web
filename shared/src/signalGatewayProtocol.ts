@@ -6,18 +6,35 @@ import {
   STREAMER_CONTROL_EVENT_WIRE_ARGUMENT_ORDER,
   STREAMER_CONTROL_STREAMER_DATA_JSON_KEYS,
   STREAMER_CONTROLLER_INBOUND_SOAC_TYPES,
+  STREAMER_ICE_NETWORK_TYPES,
   STREAMER_SIGNAL_SOCKET_EVENTS,
   STREAMER_SOAC_EVENT,
+  STREAMER_SOAC_TYPES,
   buildStreamerSoacPayload,
+  type StreamerIceNetworkType,
+  type StreamerSoacType,
 } from "./streamerProtocol.js";
 import type {
   RemoteSignalControlRequest,
+  RemoteSignalGatewayStartRequest,
   RemoteSignalGatewayStatus,
+  RemoteSignalSoacCandidate,
   RemoteSignalSoacRequest,
   StreamerRoomConfig,
 } from "./types.js";
 
 export const SIGNAL_GATEWAY_MAX_EVENTS = 200;
+
+// 单条信令请求的规模上限。SDP / ICE 都是 KB 级，超过阈值基本可以判定为滥用。
+export const MAX_SDP_LENGTH = 65_536;
+export const MAX_APP_CONTROL_ID_LENGTH = 128;
+export const MAX_APP_DATA_BASE64_LENGTH = 1_048_576;
+export const MAX_STREAMER_DATA_LENGTH = 65_536;
+export const MAX_SIGNAL_CANDIDATE_LENGTH = 2_048;
+export const MAX_SIGNAL_SERVERS = 8;
+export const MAX_SIGNAL_SERVER_URL_LENGTH = 512;
+
+export class RemoteSignalValidationError extends Error {}
 
 export interface SignalGatewayBinaryCodec<TBinary> {
   decodeBase64(value: string | undefined): TBinary;
@@ -254,7 +271,10 @@ export function normalizeSignalGatewayRoomConfig(value: unknown): StreamerRoomCo
   const record = asRecord(value);
   if (!record || typeof record.token !== "string" || record.token.length === 0) return null;
   if (!Array.isArray(record.signalServers)) return null;
-  const signalServers = record.signalServers.filter((item): item is string => typeof item === "string" && item.length > 0);
+  const signalServers = record.signalServers
+    .filter((item): item is string => typeof item === "string" && item.length > 0)
+    .filter((item) => isSafeSignalServerUrl(item))
+    .slice(0, MAX_SIGNAL_SERVERS);
   if (signalServers.length === 0) return null;
   return {
     token: record.token,
@@ -266,6 +286,227 @@ export function normalizeSignalGatewayRoomConfig(value: unknown): StreamerRoomCo
     reportServerAddress: readOptionalString(record.reportServerAddress),
     appData: readOptionalString(record.appData),
   };
+}
+
+// 信令服务器由上游 join 响应下发，但请求体完全由调用方控制，
+// 因此这里必须挡住内网/回环/元数据地址，否则 DO 会变成任意 WebSocket 出口。
+export function isSafeSignalServerUrl(value: string): boolean {
+  if (value.length === 0 || value.length > MAX_SIGNAL_SERVER_URL_LENGTH) return false;
+  if (/[\s\\"'<>]/.test(value)) return false;
+
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  if (!["ws:", "wss:", "http:", "https:"].includes(url.protocol)) return false;
+  if (url.username || url.password) return false;
+
+  const host = url.hostname.toLowerCase();
+  if (!host) return false;
+  if (host === "localhost" || host.endsWith(".localhost")) return false;
+  if (host.endsWith(".local") || host.endsWith(".internal") || host.endsWith(".home.arpa")) return false;
+  if (host === "metadata.google.internal") return false;
+  if (isPrivateHostLiteral(host)) return false;
+
+  return true;
+}
+
+function isPrivateHostLiteral(host: string): boolean {
+  if (host.startsWith("[")) {
+    const inner = host.slice(1, -1);
+    if (inner === "::1" || inner === "::") return true;
+    if (/^fe[89ab][0-9a-f]:/.test(inner)) return true;
+    if (/^f[cd][0-9a-f]{2}:/.test(inner)) return true;
+    if (inner.startsWith("::ffff:")) return true;
+    return false;
+  }
+
+  const octets = host.split(".");
+  if (octets.length !== 4) return false;
+  if (!octets.every((octet) => /^\d{1,3}$/.test(octet) && Number(octet) <= 255)) return false;
+
+  const [first, second] = octets.map(Number);
+  if (first === 0 || first === 10 || first === 127) return true;
+  if (first === 169 && second === 254) return true;
+  if (first === 172 && second >= 16 && second <= 31) return true;
+  if (first === 192 && second === 168) return true;
+  if (first === 100 && second >= 64 && second <= 127) return true;
+  if (first >= 224) return true;
+  return false;
+}
+
+export function parseSignalGatewayStartRequest(body: unknown): RemoteSignalGatewayStartRequest {
+  if (body !== undefined && body !== null && !asRecord(body)) {
+    throw new RemoteSignalValidationError("Expected a JSON signal gateway payload");
+  }
+  const record = asRecord(body) ?? {};
+  assertOptionalBoolean(record.gzipSdp, "gzipSdp");
+  assertOptionalNonNegativeInteger(record.signalServerIndex, "signalServerIndex");
+
+  const rawRoomConfig = record.roomConfig;
+  if (rawRoomConfig === undefined || rawRoomConfig === null) {
+    return {
+      gzipSdp: record.gzipSdp as boolean | undefined,
+      signalServerIndex: record.signalServerIndex as number | undefined,
+    };
+  }
+
+  const roomConfig = normalizeSignalGatewayRoomConfig(rawRoomConfig);
+  if (!roomConfig) {
+    throw new RemoteSignalValidationError(
+      "roomConfig.token is required and signalServers must contain public ws(s) URLs",
+    );
+  }
+
+  return {
+    gzipSdp: record.gzipSdp as boolean | undefined,
+    signalServerIndex: record.signalServerIndex as number | undefined,
+    roomConfig,
+  };
+}
+
+export function parseSignalControlRequest(body: unknown): RemoteSignalControlRequest {
+  const record = asRecord(body);
+  if (!record) throw new RemoteSignalValidationError("Expected a JSON control payload");
+
+  const appControlId = record.appControlId;
+  if (typeof appControlId !== "string" || appControlId.length === 0) {
+    throw new RemoteSignalValidationError("appControlId is required");
+  }
+  if (appControlId.length > MAX_APP_CONTROL_ID_LENGTH) {
+    throw new RemoteSignalValidationError("appControlId is too long");
+  }
+  if (hasControlCharacters(appControlId)) {
+    throw new RemoteSignalValidationError("appControlId contains control characters");
+  }
+
+  const appDataBase64 = record.appDataBase64;
+  if (appDataBase64 !== undefined) {
+    if (typeof appDataBase64 !== "string") {
+      throw new RemoteSignalValidationError("appDataBase64 must be a base64 string");
+    }
+    if (appDataBase64.length > MAX_APP_DATA_BASE64_LENGTH) {
+      throw new RemoteSignalValidationError("appDataBase64 is too large");
+    }
+    if (!/^[A-Za-z0-9+/]*={0,2}$/.test(appDataBase64)) {
+      throw new RemoteSignalValidationError("appDataBase64 must be a base64 string");
+    }
+  }
+
+  const streamerData = record.streamerData;
+  if (streamerData !== undefined) {
+    if (typeof streamerData !== "string") {
+      throw new RemoteSignalValidationError("streamerData must be a string");
+    }
+    if (streamerData.length > MAX_STREAMER_DATA_LENGTH) {
+      throw new RemoteSignalValidationError("streamerData is too large");
+    }
+  }
+
+  return {
+    appControlId,
+    appDataBase64: appDataBase64 as string | undefined,
+    streamerData: streamerData as string | undefined,
+  };
+}
+
+export function parseSignalSoacRequest(body: unknown): RemoteSignalSoacRequest {
+  const record = asRecord(body);
+  if (!record) throw new RemoteSignalValidationError("Expected a JSON SOAC payload");
+
+  if (!isStreamerSoacType(record.type)) {
+    throw new RemoteSignalValidationError(`type must be one of ${STREAMER_SOAC_TYPES.join(", ")}`);
+  }
+
+  const clientId = readBoundedString(record.clientId, "clientId", MAX_APP_CONTROL_ID_LENGTH);
+  const appControlId = readBoundedString(record.appControlId, "appControlId", MAX_APP_CONTROL_ID_LENGTH);
+  const iceId = readBoundedString(record.iceId, "iceId", MAX_APP_CONTROL_ID_LENGTH);
+  const sdp = readBoundedString(record.sdp, "sdp", MAX_SDP_LENGTH);
+  assertOptionalBoolean(record.gzipSdp, "gzipSdp");
+
+  let iceNetworkType: StreamerIceNetworkType | undefined;
+  if (record.iceNetworkType !== undefined) {
+    if (
+      typeof record.iceNetworkType !== "number" ||
+      !Number.isInteger(record.iceNetworkType) ||
+      !Object.values(STREAMER_ICE_NETWORK_TYPES).includes(record.iceNetworkType as StreamerIceNetworkType)
+    ) {
+      throw new RemoteSignalValidationError("iceNetworkType must be a known streamer ICE network type");
+    }
+    iceNetworkType = record.iceNetworkType as StreamerIceNetworkType;
+  }
+
+  const candidate = parseSignalSoacCandidate(record.candidate);
+  if (record.type === "candidate" && !candidate) {
+    throw new RemoteSignalValidationError("candidate is required for SOAC candidate messages");
+  }
+
+  return {
+    type: record.type,
+    clientId,
+    appControlId,
+    iceId,
+    sdp,
+    gzipSdp: record.gzipSdp as boolean | undefined,
+    iceNetworkType,
+    candidate,
+  };
+}
+
+function parseSignalSoacCandidate(value: unknown): RemoteSignalSoacCandidate | undefined {
+  if (value === undefined) return undefined;
+  const record = asRecord(value);
+  if (!record) throw new RemoteSignalValidationError("candidate must be an object");
+  if (typeof record.candidate !== "string" || record.candidate.length === 0) {
+    throw new RemoteSignalValidationError("candidate.candidate is required");
+  }
+  if (record.candidate.length > MAX_SIGNAL_CANDIDATE_LENGTH) {
+    throw new RemoteSignalValidationError("candidate.candidate is too long");
+  }
+  const sdpMid = readBoundedString(record.sdpMid, "candidate.sdpMid", MAX_APP_CONTROL_ID_LENGTH);
+
+  let sdpMLineIndex: number | undefined;
+  if (record.sdpMLineIndex !== undefined) {
+    if (typeof record.sdpMLineIndex !== "number" || !Number.isInteger(record.sdpMLineIndex)) {
+      throw new RemoteSignalValidationError("candidate.sdpMLineIndex must be an integer");
+    }
+    sdpMLineIndex = record.sdpMLineIndex;
+  }
+
+  return { candidate: record.candidate, sdpMid, sdpMLineIndex };
+}
+
+function isStreamerSoacType(value: unknown): value is StreamerSoacType {
+  return typeof value === "string" && (STREAMER_SOAC_TYPES as readonly string[]).includes(value);
+}
+
+function readBoundedString(value: unknown, fieldName: string, maxLength: number): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") throw new RemoteSignalValidationError(`${fieldName} must be a string`);
+  if (value.length > maxLength) throw new RemoteSignalValidationError(`${fieldName} is too long`);
+  return value;
+}
+
+function assertOptionalBoolean(value: unknown, fieldName: string): void {
+  if (value !== undefined && typeof value !== "boolean") {
+    throw new RemoteSignalValidationError(`${fieldName} must be a boolean`);
+  }
+}
+
+function hasControlCharacters(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code < 0x20 || code === 0x7f) return true;
+  }
+  return false;
+}
+
+function assertOptionalNonNegativeInteger(value: unknown, fieldName: string): void {
+  if (value !== undefined && (typeof value !== "number" || !Number.isInteger(value) || value < 0)) {
+    throw new RemoteSignalValidationError(`${fieldName} must be a non-negative integer`);
+  }
 }
 
 function shouldCompressSignalSdp(input: RemoteSignalSoacRequest): input is RemoteSignalSoacRequest & { sdp: string } {

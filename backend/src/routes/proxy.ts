@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   API_BASE,
+  assertAllowedUuApiMethod,
   assertAllowedUuApiPath,
   parseMaybeJsonBody,
   sanitizeUuProxyHeaders,
@@ -22,6 +23,7 @@ export function createProxyRouter(fetcher: FetchLike = fetch): Router {
         return;
       }
       assertAllowedUuApiPath(path);
+      assertAllowedUuApiMethod(method);
       res.json(await forwardUuRequest(fetcher, {
         method,
         path,

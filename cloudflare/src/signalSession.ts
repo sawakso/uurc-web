@@ -40,6 +40,9 @@ const ENGINE_IO_PONG = "3";
 const ENGINE_IO_MESSAGE = "4";
 const ENGINE_IO_BINARY_FRAME_PREFIX = 0x04;
 
+// Workers 运行时提供 Compression Streams，但 @cloudflare/workers-types 未导出该 DOM 类型别名。
+type CompressionFormat = "gzip" | "deflate" | "deflate-raw";
+
 type JsonRecord = Record<string, unknown>;
 
 type SignalSessionEnv = Record<string, never>;
@@ -248,6 +251,9 @@ export class RemoteSignalSession extends DurableObject<SignalSessionEnv> {
             cleanup();
             reject(error);
           },
+        }).catch((error: unknown) => {
+          cleanup();
+          reject(error instanceof Error ? error : new Error(String(error)));
         });
       };
       const onCloseBeforeConnect = (event: CloseEvent) => {
@@ -265,7 +271,10 @@ export class RemoteSignalSession extends DurableObject<SignalSessionEnv> {
     });
 
     socket.addEventListener("message", (event) => {
-      void this.handleSocketMessage(event.data);
+      // 单帧处理失败不能变成 unhandled rejection，否则 DO 会卡在中间状态。
+      void this.handleSocketMessage(event.data).catch((error: unknown) => {
+        console.log(`[uurc-do] frame handling failed name=${error instanceof Error ? error.name : typeof error}`);
+      });
     });
     socket.addEventListener("close", (event) => {
       this.handleSocketClose(event);
@@ -312,7 +321,14 @@ export class RemoteSignalSession extends DurableObject<SignalSessionEnv> {
     }
     if (!frame.startsWith(ENGINE_IO_MESSAGE)) return;
 
-    const packet = parseSocketIoPacket(frame.slice(1));
+    let packet: SocketIoPacket;
+    try {
+      packet = parseSocketIoPacket(frame.slice(1));
+    } catch {
+      // 畸形帧直接丢弃：上游或中间设备偶发坏包不应打断整条信令连接。
+      console.log("[uurc-do] dropped malformed socket.io frame");
+      return;
+    }
     if (packet.type === 0) {
       const data = asRecord(packet.data);
       this.connectionId = typeof data?.sid === "string" ? data.sid : this.connectionId;

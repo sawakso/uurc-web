@@ -3,6 +3,15 @@
   "name": "uurc-web",
   "main": "cloudflare/src/index.ts",
   "compatibility_date": "2026-05-17",
+  // 安全边界：只保留自定义域入口。workers.dev 子域关闭，避免绕过 Cloudflare Access。
+  // 自定义域由 wrangler 自动创建 DNS 记录与证书（要求 sawakso.com 的 zone 在本账号内）。
+  "workers_dev": false,
+  "routes": [
+    {
+      "pattern": "uurc.sawakso.com",
+      "custom_domain": true
+    }
+  ],
   "assets": {
     "directory": "./frontend/dist",
     "binding": "ASSETS",

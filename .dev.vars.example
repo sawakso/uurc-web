@@ -1,0 +1,3 @@
+# 本地 wrangler dev 用。生产环境由 Cloudflare Access 提供身份，禁止把本文件提交或上传。
+# 本地预览时关掉 Access 身份要求，否则 /api/remote/* 一律返回 403。
+REQUIRE_ACCESS=false
