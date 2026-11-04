@@ -156,17 +156,9 @@
     border-radius: 10px;
   }
 
-  /* 状态条改成单行省略，避免多行文字糊住画面。 */
-  .stage-badge {
-    left: 8px;
-    right: 8px;
-    bottom: 8px;
-    max-width: none;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 11px;
-    padding: 3px 8px;
+  .stage-status-line {
+    margin-top: 6px;
+    font-size: 11.5px;
   }
 
   .control-command-bar {

@@ -57,22 +57,15 @@
   object-fit: contain;
 }
 
-.stage-badge {
-  position: absolute;
-  left: 12px;
-  bottom: 12px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  border-radius: 999px;
-  padding: 4px 10px;
-  color: rgba(255, 255, 255, 0.96);
-  background: rgba(10, 10, 10, 0.86);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+/* 画面状态行：放在画面下方，不再做成画面上的浮层，避免挡住画面左下角。 */
+.stage-status-line {
+  margin-top: 8px;
+  padding: 0 2px;
+  color: var(--text-muted);
   font-size: 12.5px;
-  font-weight: 500;
+  line-height: 1.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .stage-grid {

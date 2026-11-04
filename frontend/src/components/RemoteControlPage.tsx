@@ -52,6 +52,13 @@ export function RemoteControlPage(props: RemoteControlPageProps) {
         >
           <RemoteCommandBar {...props} />
           <RemoteControlStage {...props} />
+          {props.hasRemoteVideo ? (
+            // 画面状态放在画面之外，不遮挡任何一角；全屏时由样式隐藏（全屏要满画面）。
+            <div className="stage-status-line">
+              {props.browserStageLabel} · {props.remoteVideoCount} 路视频 · {props.videoFlowLabel} · 输入{" "}
+              {props.inputControlLabel}
+            </div>
+          ) : null}
         </div>
         <RemoteControlWarnings {...props} />
         <RemoteControlInsights {...props} />

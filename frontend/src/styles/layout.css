@@ -184,6 +184,11 @@
   margin: 0;
 }
 
+/* 全屏时画面要占满，状态行不参与显示。 */
+.control-stage-frame--fullscreen .stage-status-line {
+  display: none;
+}
+
 .control-stage-frame--fullscreen .control-remote-stage {
   width: 100%;
   height: 100vh;
