@@ -1,4 +1,4 @@
-import { Monitor } from "lucide-react";
+import { Keyboard, Monitor } from "lucide-react";
 
 import type { RemoteControlPageProps } from "../app/remoteControlPageProps.js";
 import { RemoteVideoTile } from "./RemoteVideoTile.js";
@@ -6,8 +6,12 @@ import { RemoteVideoTile } from "./RemoteVideoTile.js";
 export function RemoteControlStage({
   browserStageLabel,
   hasRemoteVideo,
+  imeInputOpen,
   inputControlActive,
   inputControlLabel,
+  onImeInputCompositionEnd,
+  onImeInputKeyDown,
+  onToggleImeInput,
   onRemoteStageKeyDown,
   onRemoteStageKeyUp,
   onRemoteStageBlur,
@@ -32,8 +36,12 @@ export function RemoteControlStage({
   RemoteControlPageProps,
   | "browserStageLabel"
   | "hasRemoteVideo"
+  | "imeInputOpen"
   | "inputControlActive"
   | "inputControlLabel"
+  | "onImeInputCompositionEnd"
+  | "onImeInputKeyDown"
+  | "onToggleImeInput"
   | "onRemoteStageKeyDown"
   | "onRemoteStageKeyUp"
   | "onRemoteStageBlur"
@@ -113,6 +121,43 @@ export function RemoteControlStage({
           </div>
         </>
       )}
+      {inputControlActive ? (
+        imeInputOpen ? (
+          <div
+            className="stage-ime-panel"
+            // 输入框在画面之上，指针事件不能外泄给画面，否则点一下输入框就会在远端点击一次。
+            onPointerDown={(event) => event.stopPropagation()}
+            onPointerUp={(event) => event.stopPropagation()}
+            onWheel={(event) => event.stopPropagation()}
+            onContextMenu={(event) => event.stopPropagation()}
+          >
+            <Keyboard size={16} />
+            <input
+              className="stage-ime-input"
+              type="text"
+              autoFocus
+              aria-label="中文输入框"
+              placeholder="用输入法打字，上屏即发送；回车发送，Esc 关闭"
+              onCompositionEnd={onImeInputCompositionEnd}
+              onKeyDown={onImeInputKeyDown}
+            />
+            <button type="button" onClick={onToggleImeInput}>
+              关闭
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            className="stage-ime-toggle"
+            onPointerDown={(event) => event.stopPropagation()}
+            onPointerUp={(event) => event.stopPropagation()}
+            onClick={onToggleImeInput}
+          >
+            <Keyboard size={15} />
+            中文输入
+          </button>
+        )
+      ) : null}
     </div>
   );
 }

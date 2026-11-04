@@ -118,6 +118,12 @@ export interface RemoteControlPageProps {
   onRemoteStageBlur: () => void;
   onRemoteStagePaste: (event: ClipboardEvent<HTMLDivElement>) => void;
   onRemoteStageCompositionEnd: (event: CompositionEvent<HTMLDivElement>) => void;
+  // 输入法只能挂在可编辑元素上：画面是普通 div，浏览器不会启动合成，
+  // 所以单独给一个输入框承载中文上屏，上屏后整段发到被控端。
+  imeInputOpen: boolean;
+  onToggleImeInput: () => void;
+  onImeInputCompositionEnd: (event: CompositionEvent<HTMLInputElement>) => void;
+  onImeInputKeyDown: (event: KeyboardEvent<HTMLInputElement>) => void;
   onRemoteStagePointerCancel: (event: PointerEvent<HTMLDivElement>) => void;
   onRemoteStagePointerDown: (event: PointerEvent<HTMLDivElement>) => void;
   onRemoteStagePointerMove: (event: PointerEvent<HTMLDivElement>) => void;

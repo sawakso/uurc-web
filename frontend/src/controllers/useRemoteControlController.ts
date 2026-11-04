@@ -160,6 +160,7 @@ export function useRemoteControlController() {
   const [selectedRemoteVideoId, setSelectedRemoteVideoId] = useState("");
   const [clipboardText, setClipboardText] = useState("");
   const [clipboardStatus, setClipboardStatus] = useState("尚未读取本机剪贴板");
+  const [imeInputOpen, setImeInputOpen] = useState(false);
   const [autoReconnectEnabled, setAutoReconnectEnabled] = useState(true);
   const [autoReconnectAttemptCount, setAutoReconnectAttemptCount] = useState(0);
   const [decodeStalledStreak, setDecodeStalledStreak] = useState(0);
@@ -631,6 +632,7 @@ export function useRemoteControlController() {
     browserRemoteSession.current = null;
     activePointerId.current = null;
     setInputControlEnabled(false);
+    setImeInputOpen(false);
     setRemoteVideoStreams([]);
     setRemoteVideoSamplesById({});
     setBrowserRemoteState(closedState ?? createIdleBrowserRemoteState());
@@ -641,6 +643,7 @@ export function useRemoteControlController() {
     if (!selectedDeviceId) throw new Error("请选择设备");
     if (!options.skipReadinessCheck && !roomReadyForBrowserRtc) throw new Error(browserRtcBlockedReason);
     setInputControlEnabled(false);
+    setImeInputOpen(false);
     const appControlId = createAppControlId();
     const session = new BrowserRemoteSession({
       api: {
@@ -852,6 +855,7 @@ export function useRemoteControlController() {
   function handleToggleInputControl() {
     if (inputControlActive) {
       setInputControlEnabled(false);
+    setImeInputOpen(false);
       return;
     }
     if (controlChannelState !== "open") return;
@@ -986,6 +990,58 @@ export function useRemoteControlController() {
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
+  }
+
+  // 中文输入框：输入法上屏后整段发走并清空，便于连续输入。
+  function handleImeInputCompositionEnd(event: CompositionEvent<HTMLInputElement>) {
+    // 输入框在画面内部，事件会冒泡到画面自身的 composition 处理，必须截断，否则同一段文本会发两遍。
+    event.stopPropagation();
+    const input = event.currentTarget;
+    const text = input.value || event.data || "";
+    input.value = "";
+    const session = browserRemoteSession.current;
+    if (!inputControlActive || !session || !text) return;
+    try {
+      session.sendTypedText(text);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }
+
+  function handleImeInputKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    // 同理：按键不能冒泡到画面，否则输入框里打的每个字符会被画面再发一遍。
+    event.stopPropagation();
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setImeInputOpen(false);
+      remoteStageRef.current?.focus();
+      return;
+    }
+    if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
+    event.preventDefault();
+    const input = event.currentTarget;
+    const text = input.value;
+    input.value = "";
+    const session = browserRemoteSession.current;
+    if (!session) return;
+    try {
+      // 空框回车＝把回车键发给被控端（确认对话框、提交搜索等）；有内容则先把内容上屏。
+      if (text) session.sendTypedText(text);
+      else {
+        const enterValue = 66; // Android KEYCODE_ENTER，会话内按被控端平台翻译
+        session.sendKeyboardInput({ action: "keyboardPress", value: enterValue });
+        session.sendKeyboardInput({ action: "keyboardRelease", value: enterValue });
+      }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }
+
+  function handleToggleImeInput() {
+    const next = !imeInputOpen;
+    setImeInputOpen(next);
+    // 关闭时把焦点还给画面，键盘/快捷键立即恢复。
+    if (!next) remoteStageRef.current?.focus();
   }
 
   // 读取本机剪贴板并整段粘贴到远端。剪贴板 API 需要安全上下文 + 用户手势（按键即手势）。
@@ -1251,6 +1307,7 @@ export function useRemoteControlController() {
   useEffect(() => {
     if (controlChannelState !== "open" && inputControlEnabled) {
       setInputControlEnabled(false);
+    setImeInputOpen(false);
     }
   }, [controlChannelState, inputControlEnabled]);
 
@@ -1513,6 +1570,10 @@ export function useRemoteControlController() {
     onRemoteStageBlur: handleRemoteStageBlur,
     onRemoteStagePaste: handleRemoteStagePaste,
     onRemoteStageCompositionEnd: handleRemoteStageCompositionEnd,
+    imeInputOpen,
+    onToggleImeInput: handleToggleImeInput,
+    onImeInputCompositionEnd: handleImeInputCompositionEnd,
+    onImeInputKeyDown: handleImeInputKeyDown,
     onRemoteStagePointerCancel: handleRemoteStagePointerCancel,
     onRemoteStagePointerDown: handleRemoteStagePointerDown,
     onRemoteStagePointerMove: handleRemoteStagePointerMove,

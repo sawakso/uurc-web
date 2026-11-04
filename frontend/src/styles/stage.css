@@ -140,3 +140,74 @@
   font-size: 11.5px;
   line-height: 1.55;
 }
+
+/* 中文输入：画面是普通 div，浏览器不会为它启动输入法合成，
+   所以用一个真实输入框承载 IME，上屏后整段发给被控端。 */
+.stage-ime-toggle {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  padding: 6px 12px;
+  color: rgba(255, 255, 255, 0.94);
+  background: rgba(10, 10, 10, 0.86);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.stage-ime-toggle:hover {
+  border-color: rgba(96, 165, 250, 0.55);
+  color: #ffffff;
+}
+
+.stage-ime-panel {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: min(520px, calc(100% - 24px));
+  border: 1px solid rgba(96, 165, 250, 0.55);
+  border-radius: 12px;
+  padding: 8px 10px;
+  color: rgba(255, 255, 255, 0.92);
+  background: rgba(16, 16, 20, 0.96);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+.stage-ime-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: #ffffff;
+  font-size: 14px;
+  line-height: 1.4;
+  padding: 4px 2px;
+}
+
+.stage-ime-input::placeholder {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.stage-ime-panel button {
+  flex: 0 0 auto;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  padding: 4px 10px;
+  color: rgba(255, 255, 255, 0.86);
+  background: transparent;
+  font-size: 12px;
+  cursor: pointer;
+}

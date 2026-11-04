@@ -887,10 +887,21 @@ describe("App console", () => {
       buildStreamerTextInputMessage("你好").length,
     );
 
-    // 点“仅查看”暂停操作，开关切回仅查看态。
+    // 画面是普通 div，浏览器不会为它启动输入法；中文必须走独立的输入框承载合成。
+    await user.click(screen.getByRole("button", { name: "中文输入" }));
+    const imeInput = screen.getByRole("textbox", { name: "中文输入框" });
+    const beforeIme = TestPeerConnection.sentByLabel.CONTROL_DATA_CHANNEL?.length ?? 0;
+    fireEvent.compositionEnd(imeInput, { data: "远程中文" });
+    expect(TestPeerConnection.sentByLabel.CONTROL_DATA_CHANNEL?.length).toBe(beforeIme + 1);
+    expect(TestPeerConnection.sentByLabel.CONTROL_DATA_CHANNEL?.at(-1)).toBe(
+      buildStreamerTextInputMessage("远程中文").length,
+    );
+
+    // 点“仅查看”暂停操作，开关切回仅查看态，输入框一并收起。
     await user.click(screen.getByRole("button", { name: "仅查看" }));
     expect(screen.getByRole("button", { name: "仅查看" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "控制中" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.queryByRole("textbox", { name: "中文输入框" })).not.toBeInTheDocument();
   });
 
   it("surfaces one-click reconnect after the control channel drops and reuses the current room", async () => {
