@@ -9,9 +9,11 @@ export function RemoteControlSettingsDrawer({
   busy,
   connectionRouteMode,
   forceJoin,
+  inputMode,
   onAutoConnectChange,
   onConnectionRouteModeChange,
   onForceJoinChange,
+  onInputModeChange,
   onSignalServerIndexChange,
   onSdpTransportModeChange,
   onStartBrowserRemote,
@@ -29,9 +31,11 @@ export function RemoteControlSettingsDrawer({
   | "busy"
   | "connectionRouteMode"
   | "forceJoin"
+  | "inputMode"
   | "onAutoConnectChange"
   | "onConnectionRouteModeChange"
   | "onForceJoinChange"
+  | "onInputModeChange"
   | "onSignalServerIndexChange"
   | "onSdpTransportModeChange"
   | "onStartBrowserRemote"
@@ -49,6 +53,13 @@ export function RemoteControlSettingsDrawer({
       <label className="control-field auto-connect-field">
         <span className="control-field-label">进入设备自动连接</span>
         <input type="checkbox" checked={autoConnect} onChange={(event) => onAutoConnectChange(event.target.checked)} />
+      </label>
+      <label className="control-field">
+        <span className="control-field-label">键盘输入方式</span>
+        <select value={inputMode} onChange={(event) => onInputModeChange(event.target.value === "text" ? "text" : "native")}>
+          <option value="native">原生按键（用被控端输入法，可打中文）</option>
+          <option value="text">文本上屏（不依赖被控端输入法）</option>
+        </select>
       </label>
       {selectedDevice ? (
         <div className="control-field">

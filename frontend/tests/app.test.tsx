@@ -869,39 +869,35 @@ describe("App console", () => {
     expect(controlSegment).toHaveAttribute("aria-pressed", "true");
     expect(document.activeElement).toHaveAttribute("aria-label", "远控画面");
 
-    // 打字走 text_input 单帧上屏（官方主控端的桌面打字路径），不再发物理键的「按下+抬起」一对：
-    // 逐键 kbd_press 会被被控端的键盘布局/输入法二次解释，中文与符号会丢失。
+    // 默认「原生按键」：普通键发「按下+抬起」两个物理键帧，由被控端自己的输入法合成
+    // —— 这是能在被控机上打中文的前提。
     const controlSentBefore = TestPeerConnection.sentByLabel.CONTROL_DATA_CHANNEL?.length ?? 0;
     await user.keyboard("a");
     const controlSentAfter = TestPeerConnection.sentByLabel.CONTROL_DATA_CHANNEL?.length ?? 0;
-    expect(controlSentAfter - controlSentBefore).toBe(1);
+    expect(controlSentAfter - controlSentBefore).toBe(2);
+
+    // 切到「文本上屏」：同样的按键改为单帧 text_input（不依赖被控端输入法，但中文无从产生）。
+    await user.selectOptions(screen.getByRole("combobox", { name: /键盘输入方式/ }), "text");
+    const beforeText = TestPeerConnection.sentByLabel.CONTROL_DATA_CHANNEL?.length ?? 0;
+    await user.keyboard("a");
+    const afterText = TestPeerConnection.sentByLabel.CONTROL_DATA_CHANNEL?.length ?? 0;
+    expect(afterText - beforeText).toBe(1);
     expect(TestPeerConnection.sentByLabel.CONTROL_DATA_CHANNEL?.at(-1)).toBe(
       buildStreamerTextInputMessage("a").length,
     );
 
-    // 输入法（中文）上屏：compositionend 的整段文本同样走 text_input，一次性落到被控端。
-    const afterAscii = TestPeerConnection.sentByLabel.CONTROL_DATA_CHANNEL?.length ?? 0;
+    // 文本模式下输入法上屏的整段文本也走 text_input。
+    const beforeComposition = TestPeerConnection.sentByLabel.CONTROL_DATA_CHANNEL?.length ?? 0;
     fireEvent.compositionEnd(screen.getByRole("application", { name: "远控画面" }), { data: "你好" });
-    expect(TestPeerConnection.sentByLabel.CONTROL_DATA_CHANNEL?.length).toBe(afterAscii + 1);
+    expect(TestPeerConnection.sentByLabel.CONTROL_DATA_CHANNEL?.length).toBe(beforeComposition + 1);
     expect(TestPeerConnection.sentByLabel.CONTROL_DATA_CHANNEL?.at(-1)).toBe(
       buildStreamerTextInputMessage("你好").length,
     );
 
-    // 画面是普通 div，浏览器不会为它启动输入法；中文必须走独立的输入框承载合成。
-    await user.click(screen.getByRole("button", { name: "中文输入" }));
-    const imeInput = screen.getByRole("textbox", { name: "中文输入框" });
-    const beforeIme = TestPeerConnection.sentByLabel.CONTROL_DATA_CHANNEL?.length ?? 0;
-    fireEvent.compositionEnd(imeInput, { data: "远程中文" });
-    expect(TestPeerConnection.sentByLabel.CONTROL_DATA_CHANNEL?.length).toBe(beforeIme + 1);
-    expect(TestPeerConnection.sentByLabel.CONTROL_DATA_CHANNEL?.at(-1)).toBe(
-      buildStreamerTextInputMessage("远程中文").length,
-    );
-
-    // 点“仅查看”暂停操作，开关切回仅查看态，输入框一并收起。
+    // 点“仅查看”暂停操作，开关切回仅查看态。
     await user.click(screen.getByRole("button", { name: "仅查看" }));
     expect(screen.getByRole("button", { name: "仅查看" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "控制中" })).toHaveAttribute("aria-pressed", "false");
-    expect(screen.queryByRole("textbox", { name: "中文输入框" })).not.toBeInTheDocument();
   });
 
   it("surfaces one-click reconnect after the control channel drops and reuses the current room", async () => {

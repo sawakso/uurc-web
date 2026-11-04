@@ -17,6 +17,7 @@ import type { RemoteShortcut } from "../remote/remoteShortcuts.js";
 import type {
   BusyAction,
   ConnectionRouteMode,
+  RemoteInputMode,
   NextAction,
   RemoteConnectionQuality,
   RemoteStageViewMode,
@@ -118,12 +119,10 @@ export interface RemoteControlPageProps {
   onRemoteStageBlur: () => void;
   onRemoteStagePaste: (event: ClipboardEvent<HTMLDivElement>) => void;
   onRemoteStageCompositionEnd: (event: CompositionEvent<HTMLDivElement>) => void;
-  // 输入法只能挂在可编辑元素上：画面是普通 div，浏览器不会启动合成，
-  // 所以单独给一个输入框承载中文上屏，上屏后整段发到被控端。
-  imeInputOpen: boolean;
-  onToggleImeInput: () => void;
-  onImeInputCompositionEnd: (event: CompositionEvent<HTMLInputElement>) => void;
-  onImeInputKeyDown: (event: KeyboardEvent<HTMLInputElement>) => void;
+  // 输入方式：native = 只发物理键，由被控端自己的输入法合成（能打中文）；
+  // text = 把字符整段上屏（不依赖被控端输入法，但打不了中文）。
+  inputMode: RemoteInputMode;
+  onInputModeChange: (mode: RemoteInputMode) => void;
   onRemoteStagePointerCancel: (event: PointerEvent<HTMLDivElement>) => void;
   onRemoteStagePointerDown: (event: PointerEvent<HTMLDivElement>) => void;
   onRemoteStagePointerMove: (event: PointerEvent<HTMLDivElement>) => void;
