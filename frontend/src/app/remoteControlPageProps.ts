@@ -1,4 +1,4 @@
-import type { ClipboardEvent, KeyboardEvent, PointerEvent, RefObject, WheelEvent } from "react";
+import type { ClipboardEvent, CompositionEvent, KeyboardEvent, PointerEvent, RefObject, WheelEvent } from "react";
 
 import type {
   RemoteControlBootstrap,
@@ -117,6 +117,7 @@ export interface RemoteControlPageProps {
   onRemoteStageKeyUp: (event: KeyboardEvent<HTMLDivElement>) => void;
   onRemoteStageBlur: () => void;
   onRemoteStagePaste: (event: ClipboardEvent<HTMLDivElement>) => void;
+  onRemoteStageCompositionEnd: (event: CompositionEvent<HTMLDivElement>) => void;
   onRemoteStagePointerCancel: (event: PointerEvent<HTMLDivElement>) => void;
   onRemoteStagePointerDown: (event: PointerEvent<HTMLDivElement>) => void;
   onRemoteStagePointerMove: (event: PointerEvent<HTMLDivElement>) => void;

@@ -6,6 +6,7 @@ import {
   STREAMER_CONTROL_CONNECT_TYPES,
   analyzeRemoteSignalReadiness,
   buildDefaultStreamerConnectOptionsBase64,
+  buildStreamerTextInputMessage,
 } from "@uurc/shared/streamerProtocol";
 import App from "../src/App.js";
 import type { BrowserRemoteSessionState } from "../src/remote/browserRemoteSession.js";
@@ -868,11 +869,23 @@ describe("App console", () => {
     expect(controlSegment).toHaveAttribute("aria-pressed", "true");
     expect(document.activeElement).toHaveAttribute("aria-label", "远控画面");
 
-    // 忠实按键:普通键在 keydown 即同步发「按下+抬起」一对(瞬时一击)，不在被控端留下“按住”状态。
+    // 打字走 text_input 单帧上屏（官方主控端的桌面打字路径），不再发物理键的「按下+抬起」一对：
+    // 逐键 kbd_press 会被被控端的键盘布局/输入法二次解释，中文与符号会丢失。
     const controlSentBefore = TestPeerConnection.sentByLabel.CONTROL_DATA_CHANNEL?.length ?? 0;
     await user.keyboard("a");
     const controlSentAfter = TestPeerConnection.sentByLabel.CONTROL_DATA_CHANNEL?.length ?? 0;
-    expect(controlSentAfter - controlSentBefore).toBeGreaterThanOrEqual(2);
+    expect(controlSentAfter - controlSentBefore).toBe(1);
+    expect(TestPeerConnection.sentByLabel.CONTROL_DATA_CHANNEL?.at(-1)).toBe(
+      buildStreamerTextInputMessage("a").length,
+    );
+
+    // 输入法（中文）上屏：compositionend 的整段文本同样走 text_input，一次性落到被控端。
+    const afterAscii = TestPeerConnection.sentByLabel.CONTROL_DATA_CHANNEL?.length ?? 0;
+    fireEvent.compositionEnd(screen.getByRole("application", { name: "远控画面" }), { data: "你好" });
+    expect(TestPeerConnection.sentByLabel.CONTROL_DATA_CHANNEL?.length).toBe(afterAscii + 1);
+    expect(TestPeerConnection.sentByLabel.CONTROL_DATA_CHANNEL?.at(-1)).toBe(
+      buildStreamerTextInputMessage("你好").length,
+    );
 
     // 点“仅查看”暂停操作，开关切回仅查看态。
     await user.click(screen.getByRole("button", { name: "仅查看" }));
@@ -964,9 +977,14 @@ describe("App console", () => {
       expect(readLocalClipboardTextMock).toHaveBeenCalledTimes(1);
     });
     await screen.findByText("已读取 14 字符");
-    const textBytesBefore = TestPeerConnection.sentByLabel.TEXT_DATA_CHANNEL?.length ?? 0;
+    // 剪贴板文本走与控制输入同一条通道的 text_input 整段上屏（桌面被控端的粘贴路径），
+    // 不再落到 TEXT_DATA_CHANNEL——那条通道的被控端只用于回传，主控端发过去不会插入文本。
+    const controlBytesBefore = TestPeerConnection.sentByLabel.CONTROL_DATA_CHANNEL?.length ?? 0;
     await user.click(screen.getByRole("button", { name: "发送到远端" }));
-    expect(TestPeerConnection.sentByLabel.TEXT_DATA_CHANNEL?.length).toBeGreaterThan(textBytesBefore);
+    expect(TestPeerConnection.sentByLabel.CONTROL_DATA_CHANNEL?.length).toBeGreaterThan(controlBytesBefore);
+    expect(TestPeerConnection.sentByLabel.CONTROL_DATA_CHANNEL?.at(-1)).toBe(
+      buildStreamerTextInputMessage("from clipboard").length,
+    );
     expect(screen.getByText("已发送 14 字符到远端")).toBeInTheDocument();
   });
 

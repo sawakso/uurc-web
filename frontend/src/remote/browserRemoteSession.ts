@@ -492,6 +492,19 @@ export class BrowserRemoteSession {
     this.sendInputData(buildStreamerTextInputMessage(content));
   }
 
+  // 统一入口：桌面被控端（Windows/Mac）用 text_input 整段上屏——这也是官方主控端的行为，
+  // 中文/符号不受本机键盘布局或远端输入法影响；移动被控端没有该通道，退回 TEXT 通道的文本消息。
+  sendTypedText(text: string): void {
+    if (!text) return;
+    if (isDesktopPlatform(this.targetPlatform) || this.targetPlatform === undefined) {
+      // 平台未知时也按桌面线格式发送：远控 PC 是本应用的主场景，
+      // 再包一层 protobuf 反而会让被控端整条消息解析失败。
+      this.sendInputData(buildStreamerTextInputMessage(text), "desktop");
+      return;
+    }
+    this.sendTextData(text);
+  }
+
   releaseAllInputs(): void {
     // 兜底：把当前“按住”的鼠标键与键盘键全部抬起。避免失焦 / 右键菜单 / 系统快捷键吞掉
     // pointerup/keyup 后，在被控端留下卡住的按键（右键卡死、Alt 卡死等）。
@@ -1054,7 +1067,7 @@ export class BrowserRemoteSession {
     this.updateDataChannelState(label);
   }
 
-  private sendInputData(inputMessage: string): void {
+  private sendInputData(inputMessage: string, wire: "auto" | "desktop" = "auto"): void {
     if (!inputMessage) {
       this.recordDebugEvent("data_send", "跳过空控制输入", {
         targetPlatform: this.targetPlatform,
@@ -1064,7 +1077,10 @@ export class BrowserRemoteSession {
     const sequence = this.sequence;
     const timestampSeconds = this.streamerTimestampSeconds();
     const inputDisplayId = this.resolveInputDisplayId();
-    const payload = isDesktopPlatform(this.targetPlatform)
+    // 桌面被控端用裸 JSON；移动被控端再包一层 protobuf。
+    // wire="desktop" 用于平台未知但需要强制按桌面格式发送的场景（见 sendTypedText）。
+    const useDesktopWire = wire === "desktop" || isDesktopPlatform(this.targetPlatform);
+    const payload = useDesktopWire
       ? inputMessage
       : encodeStreamerInputMessage({
           sequence,
@@ -1080,7 +1096,7 @@ export class BrowserRemoteSession {
         timestampSeconds,
         inputDisplayId,
         remoteDisplayId: this.remoteDisplayId,
-        route: isDesktopPlatform(this.targetPlatform) ? "control_text" : "send_to_rom",
+        route: useDesktopWire ? "control_text" : "send_to_rom",
         targetPlatform: this.targetPlatform,
         input: summarizeInputMessage(inputMessage),
       },

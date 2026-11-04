@@ -11,6 +11,7 @@ export function RemoteControlStage({
   onRemoteStageKeyDown,
   onRemoteStageKeyUp,
   onRemoteStageBlur,
+  onRemoteStageCompositionEnd,
   onRemoteStagePaste,
   onRemoteStagePointerCancel,
   onRemoteStagePointerDown,
@@ -36,6 +37,7 @@ export function RemoteControlStage({
   | "onRemoteStageKeyDown"
   | "onRemoteStageKeyUp"
   | "onRemoteStageBlur"
+  | "onRemoteStageCompositionEnd"
   | "onRemoteStagePaste"
   | "onRemoteStagePointerCancel"
   | "onRemoteStagePointerDown"
@@ -74,6 +76,7 @@ export function RemoteControlStage({
       onKeyUp={onRemoteStageKeyUp}
       onBlur={onRemoteStageBlur}
       onPaste={onRemoteStagePaste}
+      onCompositionEnd={onRemoteStageCompositionEnd}
     >
       {hasRemoteVideo ? (
         <>

@@ -9,6 +9,11 @@
   .account-drawer {
     position: static;
   }
+
+  /* 中等宽度（笔记本窄窗口）：画面区按剩余视口收缩，避免把下方面板挤出可視区。 */
+  .control-remote-stage {
+    height: clamp(300px, calc(100vh - 210px), 620px);
+  }
 }
 
 @media (max-width: 780px) {
@@ -120,5 +125,85 @@
 
   h1 {
     font-size: 24px;
+  }
+}
+
+/* 手机（竖屏）：单列铺满、画面区压缩、控件放大到可点按，工具栏不换行只横向滚动。 */
+@media (max-width: 560px) {
+  .app-shell,
+  .product-shell,
+  .control-shell,
+  .auth-product-shell {
+    width: 100%;
+    padding: 12px 10px 28px;
+  }
+
+  .control-topbar {
+    gap: 8px;
+    margin-bottom: 12px;
+    padding-bottom: 12px;
+    min-height: 0;
+  }
+
+  .control-topbar h1 {
+    font-size: 17px;
+  }
+
+  /* 手机上画面是主角：横屏时接近满高，竖屏时留出下方面板的位置。 */
+  .control-remote-stage {
+    height: clamp(200px, 38vh, 340px);
+    min-height: 180px;
+    border-radius: 10px;
+  }
+
+  /* 状态条改成单行省略，避免多行文字糊住画面。 */
+  .stage-badge {
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+    max-width: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11px;
+    padding: 3px 8px;
+  }
+
+  .control-command-bar {
+    gap: 2px;
+    padding: 4px;
+    border-radius: 10px;
+  }
+
+  .control-command-bar button,
+  .shortcut-menu > summary {
+    min-height: 40px;
+    padding: 0 9px;
+    font-size: 12.5px;
+  }
+
+  .control-insights,
+  .control-drawer-row {
+    gap: 8px;
+  }
+
+  .control-insight-panel {
+    padding: 12px;
+    border-radius: 12px;
+  }
+
+  .quality-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .connection-recovery-strip,
+  .remote-input-row.compact {
+    flex-basis: auto;
+    width: 100%;
+    max-width: none;
+  }
+
+  .device-missing-card {
+    padding: 20px 16px;
   }
 }

@@ -1,4 +1,4 @@
-import type { ClipboardEvent, KeyboardEvent, PointerEvent, WheelEvent } from "react";
+import type { ClipboardEvent, CompositionEvent, KeyboardEvent, PointerEvent, WheelEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMatch, useNavigate } from "react-router";
 
@@ -181,6 +181,8 @@ export function useRemoteControlController() {
   const autoConnectAttemptedDeviceRef = useRef<string>("");
   const controlChannelOpenedRef = useRef(false);
   const activePointerId = useRef<number | null>(null);
+  // 记录最近一次输入法上屏时间，用于压掉浏览器补发的重复 keydown。
+  const lastCompositionEndAt = useRef(0);
   const navigate = useNavigate();
   const controlRouteMatch = useMatch("/devices/:deviceId/control");
   const routeSelectedDeviceId = controlRouteMatch?.params.deviceId ?? "";
@@ -812,7 +814,7 @@ export function useRemoteControlController() {
   function handleSendClipboardText() {
     if (!clipboardText.trim() || !browserRemoteSession.current) return;
     try {
-      browserRemoteSession.current.sendTextData(clipboardText);
+      browserRemoteSession.current.sendTypedText(clipboardText);
       setClipboardStatus(`已发送 ${clipboardText.length} 字符到远端`);
       showToast("已发送剪贴板到远端");
       if (browserRemoteSession.current) setBrowserRemoteState(browserRemoteSession.current.getState());
@@ -935,22 +937,75 @@ export function useRemoteControlController() {
   // - 长按重复改由浏览器本机自动重复(event.repeat 的 keydown)按本机速率驱动，
   //   与 VNC RFB “自动重复在客户端侧处理”的设计一致。
   function handleRemoteStageKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    // isComposing:本机输入法合成中不把候选键当普通按键(中文请用远端输入法或剪贴板粘贴)。
-    if (!inputControlActive || !browserRemoteSession.current || event.nativeEvent.isComposing) return;
-    // Ctrl/Cmd+V 走“把本机剪贴板粘到远端”（onPaste 处理），不把 V 当普通按键发给远端，
-    // 否则远端会再粘一次它自己的剪贴板。
-    if ((event.ctrlKey || event.metaKey) && (event.key === "v" || event.key === "V")) return;
+    const session = browserRemoteSession.current;
+    if (!inputControlActive || !session) return;
+    // 输入法合成中的按键不发给远端，等 compositionend 一次性上屏（见 handleRemoteStageCompositionEnd）。
+    if (event.nativeEvent.isComposing) return;
+    // Ctrl/Cmd+V：直接读本机剪贴板整段粘贴，不再依赖 div 上的 paste 事件
+    // （非可编辑元素的 paste 事件在部分浏览器里根本不会触发，这是"粘贴没反应"的主因）。
+    if ((event.ctrlKey || event.metaKey) && (event.key === "v" || event.key === "V")) {
+      event.preventDefault();
+      void pasteClipboardToRemote();
+      return;
+    }
+    // 可打印字符（字母/数字/符号/空格/中文）走 text_input 整字符上屏：
+    // 不再让被控端按自己的键盘布局把物理键翻译成字符，中文与符号也能正确落字。
+    if (!event.ctrlKey && !event.altKey && !event.metaKey && event.key.length === 1) {
+      // 部分浏览器在 compositionend 之后还会补一次 keydown，避免重复上屏。
+      if (Date.now() - lastCompositionEndAt.current < 120) return;
+      event.preventDefault();
+      try {
+        session.sendTypedText(event.key);
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : String(caught));
+      }
+      return;
+    }
     const isHoldModifier = HOLD_MODIFIER_KEYS.has(event.key);
     if (isHoldModifier && event.repeat) return; // 修饰键已按住，忽略本机自动重复
     event.preventDefault();
     const value = toRemoteKeyValue(event);
     try {
-      browserRemoteSession.current.sendKeyboardInput({ action: "keyboardPress", value });
+      session.sendKeyboardInput({ action: "keyboardPress", value });
       if (!isHoldModifier) {
-        browserRemoteSession.current.sendKeyboardInput({ action: "keyboardRelease", value });
+        session.sendKeyboardInput({ action: "keyboardRelease", value });
       }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }
+
+  // 输入法上屏：中文/日文等合成结果整段发给远端。
+  function handleRemoteStageCompositionEnd(event: CompositionEvent<HTMLDivElement>) {
+    lastCompositionEndAt.current = Date.now();
+    const session = browserRemoteSession.current;
+    const data = event.data;
+    if (!inputControlActive || !session || !data) return;
+    try {
+      session.sendTypedText(data);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }
+
+  // 读取本机剪贴板并整段粘贴到远端。剪贴板 API 需要安全上下文 + 用户手势（按键即手势）。
+  async function pasteClipboardToRemote(): Promise<void> {
+    const session = browserRemoteSession.current;
+    if (!inputControlActive || !session) return;
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text) {
+        setClipboardStatus("本机剪贴板为空，没有可粘贴的内容");
+        return;
+      }
+      session.sendTypedText(text);
+      setClipboardText(text);
+      setClipboardStatus(`已粘贴 ${text.length} 字符到远端`);
+    } catch (caught) {
+      // 浏览器拒绝时给出可执行的替代方案，而不是静默失败。
+      setClipboardStatus(
+        `无法读取本机剪贴板（${caught instanceof Error ? caught.message : String(caught)}），请用下方「剪贴板」面板的「读取剪贴板」再发送`,
+      );
     }
   }
 
@@ -975,13 +1030,13 @@ export function useRemoteControlController() {
   }
 
   function handleRemoteStagePaste(event: ClipboardEvent<HTMLDivElement>) {
-    // 直接粘贴：Ctrl/Cmd+V 时把本机剪贴板文本经文本通道发到远端（无需打开剪贴板面板）。
+    // 右键菜单/系统菜单触发的粘贴走这里；键盘 Ctrl+V 已在 keydown 里处理并 preventDefault。
     if (!inputControlActive || !browserRemoteSession.current) return;
     const text = event.clipboardData?.getData("text") ?? "";
     if (!text) return;
     event.preventDefault();
     try {
-      browserRemoteSession.current.sendTextData(text);
+      browserRemoteSession.current.sendTypedText(text);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
@@ -1457,6 +1512,7 @@ export function useRemoteControlController() {
     onRemoteStageKeyUp: handleRemoteStageKeyUp,
     onRemoteStageBlur: handleRemoteStageBlur,
     onRemoteStagePaste: handleRemoteStagePaste,
+    onRemoteStageCompositionEnd: handleRemoteStageCompositionEnd,
     onRemoteStagePointerCancel: handleRemoteStagePointerCancel,
     onRemoteStagePointerDown: handleRemoteStagePointerDown,
     onRemoteStagePointerMove: handleRemoteStagePointerMove,

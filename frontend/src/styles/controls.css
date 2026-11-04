@@ -243,14 +243,15 @@
 
 .control-drawer-row {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  /* auto-fit + min(100%, …)：窗口变窄时自动减列，而不是把面板挤出容器被裁掉。 */
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
   gap: 12px;
   align-items: start;
 }
 
 .control-insights {
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(260px, 0.9fr) minmax(240px, 0.8fr);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
   gap: 12px;
 }
 

@@ -1125,6 +1125,55 @@ describe("BrowserRemoteSession", () => {
     ]);
   });
 
+  it("sends typed text as text_input for desktop hosts and falls back to the text channel otherwise", async () => {
+    const windowsPeer = new FakePeerConnection();
+    const windowsSession = new BrowserRemoteSession({
+      api: new FakeRemoteApi(),
+      createPeerConnection: () => windowsPeer,
+      now: () => 1000,
+    });
+    await windowsSession.start({
+      appControlId: "control-1",
+      appDataBase64: "Cg==",
+      streamerData: "{}",
+      targetPlatform: 1,
+    });
+    windowsSession.sendTypedText("你好");
+    expect(windowsPeer.channels.get(STREAMER_DATA_CHANNEL_LABELS.control)?.sent).toEqual([
+      buildStreamerTextInputMessage("你好"),
+    ]);
+
+    // 平台未知时按桌面裸 JSON 发送：远控 PC 是主场景，包 protobuf 会让被控端整条消息解析失败。
+    const unknownPeer = new FakePeerConnection();
+    const unknownSession = new BrowserRemoteSession({
+      api: new FakeRemoteApi(),
+      createPeerConnection: () => unknownPeer,
+      now: () => 1000,
+    });
+    await unknownSession.start({ appControlId: "control-1", appDataBase64: "Cg==", streamerData: "{}" });
+    unknownSession.sendTypedText("a");
+    expect(unknownPeer.channels.get(STREAMER_DATA_CHANNEL_LABELS.control)?.sent).toEqual([
+      buildStreamerTextInputMessage("a"),
+    ]);
+
+    // 明确识别为移动被控端（非 1/4）时没有 text_input 通道，退回文本消息通道。
+    const mobilePeer = new FakePeerConnection();
+    const mobileSession = new BrowserRemoteSession({
+      api: new FakeRemoteApi(),
+      createPeerConnection: () => mobilePeer,
+      now: () => 1000,
+    });
+    await mobileSession.start({
+      appControlId: "control-1",
+      appDataBase64: "Cg==",
+      streamerData: "{}",
+      targetPlatform: 2,
+    });
+    mobileSession.sendTypedText("a");
+    expect(mobilePeer.channels.get(STREAMER_DATA_CHANNEL_LABELS.text)?.sent).toHaveLength(1);
+    expect(mobilePeer.channels.get(STREAMER_DATA_CHANNEL_LABELS.control)?.sent ?? []).toHaveLength(0);
+  });
+
   it("uses app-compatible second timestamps for control input messages", async () => {
     const api = new FakeRemoteApi();
     const peer = new FakePeerConnection();
