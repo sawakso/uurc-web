@@ -33,7 +33,7 @@ export type ShareServerMessage =
   | { type: "error"; message: string };
 
 export type ShareClientMessage =
-  | { type: "auth"; role: ShareRole; password?: string }
+  | { type: "auth"; role: ShareRole; password?: string; hostToken?: string }
   | { type: "signal"; to: string; payload: ShareSignalPayload }
   | { type: "input"; event: ShareInputEvent }
   | { type: "control"; enabled: boolean };
@@ -56,7 +56,8 @@ export function parseShareClientMessage(raw: string): ShareClientMessage | null 
       const role = value.role === "host" || value.role === "guest" ? value.role : null;
       if (!role) return null;
       const password = typeof value.password === "string" ? value.password : undefined;
-      return { type: "auth", role, password };
+      const hostToken = typeof value.hostToken === "string" ? value.hostToken : undefined;
+      return { type: "auth", role, password, hostToken };
     }
     case "signal": {
       const payload = parseShareSignalPayload(value.payload);

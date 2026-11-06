@@ -52,12 +52,14 @@ export default {
     if (url.pathname.startsWith("/api/remote/")) {
       return handleRemoteApi(request, env);
     }
-    // 分享链接：访客没有 Cloudflare Access 身份，所以这条路径自身承担鉴权（口令）。
-    if (url.pathname === "/api/share" && request.method === "POST") {
+    // 创建分享：走 Access 保护的老前缀（只有站点所有者能建），
+    // 这样 /api/share/* 可以被 Access 放行给访客，而创建口仍然锁在门内。
+    if (url.pathname === "/api/remote/share/create" && request.method === "POST") {
       const guard = assertAccessIdentity(request, env);
       if (guard) return guard;
       return handleShareCreate(request, env);
     }
+    // 分享链接：访客没有 Cloudflare Access 身份，所以这条路径自身承担鉴权（口令 / 主控令牌）。
     if (url.pathname.startsWith("/api/share/")) {
       return handleShareApi(request, env);
     }
@@ -132,16 +134,23 @@ async function handleShareCreate(request: Request, env: Env): Promise<Response> 
   const shareId = [...crypto.getRandomValues(new Uint8Array(10))]
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
+  // 主控令牌：只回给创建者的浏览器，用来在公开的 WebSocket 上证明"我是主控"。
+  const hostToken = [...crypto.getRandomValues(new Uint8Array(16))]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
   const session = env.SHARE_SESSION.getByName(shareId);
   const response = await session.fetch(
     new Request("https://share.internal/configure", {
       method: "POST",
       headers: { "content-type": "application/json", "x-uurc-share-action": "configure" },
-      body: JSON.stringify({ passwordHash: await hashPassword(password) }),
+      body: JSON.stringify({
+        passwordHash: await hashPassword(password),
+        hostTokenHash: await hashPassword(hostToken),
+      }),
     }),
   );
   if (!response.ok) return json({ error: "创建分享失败" }, { status: 500 });
-  return json({ shareId });
+  return json({ shareId, hostToken });
 }
 
 async function handleShareApi(request: Request, env: Env): Promise<Response> {
@@ -161,15 +170,9 @@ async function handleShareApi(request: Request, env: Env): Promise<Response> {
   }
 
   if (sub === "ws") {
-    const headers = new Headers(request.headers);
-    // 只有通过了 Cloudflare Access 的连接才能当主控；访客路径没有这个身份头。
-    // 这里用 set（不是 append），客户端自带的值会被覆盖。
-    if (request.headers.get("cf-access-authenticated-user-email")) {
-      headers.set("x-uurc-share-role", "host");
-    } else {
-      headers.delete("x-uurc-share-role");
-    }
-    return session.fetch(new Request(request.url, { headers }));
+    // 主控 / 访客一律靠第一条 auth 消息自证（主控令牌或口令），
+    // 这样即使整条路径被 Access 放行，也不会有人靠伪造请求头抢到主控身份。
+    return session.fetch(new Request(request.url, { headers: request.headers }));
   }
 
   return json({ error: "Not found" }, { status: 404 });

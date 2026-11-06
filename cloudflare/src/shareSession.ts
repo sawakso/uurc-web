@@ -44,16 +44,19 @@ export class ShareSession implements DurableObject {
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
       return json({ error: "expected websocket" }, 426);
     }
-    return this.handleSocket(request);
+    return this.handleSocket();
   }
 
   private async handleConfigure(request: Request): Promise<Response> {
-    const body = (await request.json().catch(() => null)) as { passwordHash?: unknown } | null;
+    const body = (await request.json().catch(() => null)) as { passwordHash?: unknown; hostTokenHash?: unknown } | null;
     const passwordHash = typeof body?.passwordHash === "string" ? body.passwordHash : "";
-    if (!/^[0-9a-f]{64}$/.test(passwordHash)) {
-      return json({ error: "invalid password hash" }, 400);
+    const hostTokenHash = typeof body?.hostTokenHash === "string" ? body.hostTokenHash : "";
+    if (!/^[0-9a-f]{64}$/.test(passwordHash) || !/^[0-9a-f]{64}$/.test(hostTokenHash)) {
+      return json({ error: "invalid credentials" }, 400);
     }
     await this.ctx.storage.put("passwordHash", passwordHash);
+    // 主控令牌只在创建时下发一次：谁拿着它谁就是主控，与 Access 头无关。
+    await this.ctx.storage.put("hostTokenHash", hostTokenHash);
     await this.ctx.storage.put("createdAt", Date.now());
     // 已有会话全部断掉：改口令等于让旧链接立即失效。
     this.host?.close(4000, "reconfigured");
@@ -63,8 +66,7 @@ export class ShareSession implements DurableObject {
     return json({ ok: true });
   }
 
-  private handleSocket(request: Request): Response {
-    const isHost = request.headers.get("x-uurc-share-role") === "host";
+  private handleSocket(): Response {
     const pair = new WebSocketPair();
     const client = pair[0];
     const server = pair[1];
@@ -77,7 +79,7 @@ export class ShareSession implements DurableObject {
     }, AUTH_TIMEOUT_MS);
 
     server.addEventListener("message", (event) => {
-      void this.handleMessage(server, state, event.data, isHost).then((next) => {
+      void this.handleMessage(server, state, event.data).then((next) => {
         if (next) {
           state = next;
           clearTimeout(authTimer);
@@ -99,7 +101,6 @@ export class ShareSession implements DurableObject {
     socket: WebSocket,
     state: ShareSocketState | null,
     raw: unknown,
-    isHostConnection: boolean,
   ): Promise<ShareSocketState | null> {
     if (typeof raw !== "string") return null;
     const message = parseShareClientMessage(raw);
@@ -110,7 +111,7 @@ export class ShareSession implements DurableObject {
 
     if (!state) {
       if (message.type !== "auth") return null;
-      return this.authenticate(socket, message.role, message.password, isHostConnection);
+      return this.authenticate(socket, message.role, message);
     }
 
     if (message.type === "auth") return null;
@@ -149,20 +150,24 @@ export class ShareSession implements DurableObject {
   private async authenticate(
     socket: WebSocket,
     role: "host" | "guest",
-    password: string | undefined,
-    isHostConnection: boolean,
+    message: { password?: string; hostToken?: string },
   ): Promise<ShareSocketState | null> {
-    if (role === "host" && !isHostConnection) {
-      send(socket, { type: "auth-error", message: "只有站点所有者可以发起分享" });
-      socket.close(4003, "forbidden");
-      return null;
-    }
-
-    const passwordHash = await this.ctx.storage.get<string>("passwordHash");
-    if (!passwordHash) {
+    const [passwordHash, hostTokenHash] = await Promise.all([
+      this.ctx.storage.get<string>("passwordHash"),
+      this.ctx.storage.get<string>("hostTokenHash"),
+    ]);
+    if (!passwordHash || !hostTokenHash) {
       send(socket, { type: "auth-error", message: "分享已失效" });
       socket.close(4004, "no share");
       return null;
+    }
+
+    if (role === "host") {
+      if (!message.hostToken || (await hashPassword(message.hostToken)) !== hostTokenHash) {
+        send(socket, { type: "auth-error", message: "只有创建者可以开启画面" });
+        socket.close(4003, "forbidden");
+        return null;
+      }
     }
 
     if (role === "guest") {
@@ -171,7 +176,7 @@ export class ShareSession implements DurableObject {
         socket.close(4029, "too many attempts");
         return null;
       }
-      if (!password || (await hashPassword(password)) !== passwordHash) {
+      if (!message.password || (await hashPassword(message.password)) !== passwordHash) {
         this.recordFailure();
         send(socket, { type: "auth-error", message: "口令不正确" });
         socket.close(4003, "bad password");

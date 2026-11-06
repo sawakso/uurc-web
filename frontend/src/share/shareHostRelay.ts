@@ -40,6 +40,7 @@ export class ShareHostRelay {
   private readonly options: ShareHostRelayOptions;
   private socket: WebSocket | null = null;
   private shareId = "";
+  private hostToken = "";
   private readonly peers = new Map<string, GuestPeer>();
   private state: ShareHostState = { status: "idle", guests: 0, message: "" };
 
@@ -56,18 +57,24 @@ export class ShareHostRelay {
     this.stop();
     this.update({ status: "starting", guests: 0, message: "正在创建分享…" });
 
-    const response = await fetch("/api/share", {
+    // 创建口在 Access 保护的老前缀下：只有站点所有者能建分享。
+    const response = await fetch("/api/remote/share/create", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ password }),
     });
-    const body = (await response.json().catch(() => ({}))) as { shareId?: string; error?: string };
-    if (!response.ok || !body.shareId) {
+    const body = (await response.json().catch(() => ({}))) as {
+      shareId?: string;
+      hostToken?: string;
+      error?: string;
+    };
+    if (!response.ok || !body.shareId || !body.hostToken) {
       this.update({ status: "error", guests: 0, message: body.error ?? "创建分享失败" });
       throw new Error(body.error ?? "创建分享失败");
     }
 
     this.shareId = body.shareId;
+    this.hostToken = body.hostToken;
     this.openSocket();
     return this.shareUrl;
   }
@@ -77,6 +84,7 @@ export class ShareHostRelay {
     this.socket = null;
     for (const guestId of [...this.peers.keys()]) this.closePeer(guestId);
     this.shareId = "";
+    this.hostToken = "";
     this.update({ status: "idle", guests: 0, message: "" });
   }
 
@@ -95,7 +103,8 @@ export class ShareHostRelay {
     this.socket = socket;
 
     socket.addEventListener("open", () => {
-      socket.send(JSON.stringify({ type: "auth", role: "host" }));
+      // 主控令牌自证身份：即使整条 /api/share 被 Access 放行，别人也拿不到它。
+      socket.send(JSON.stringify({ type: "auth", role: "host", hostToken: this.hostToken }));
     });
 
     socket.addEventListener("message", (event) => {
