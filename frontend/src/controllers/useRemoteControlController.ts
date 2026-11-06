@@ -110,9 +110,12 @@ function readAutoConnectPref(): boolean {
 }
 
 // 输入方式偏好：默认 native（发物理键，由被控机自己的输入法组字，能打中文）。
+// 键名带 v2：旧版本默认存过 "text"，沿用老键会让老用户永远停在绕开输入法的那条路上。
+const INPUT_MODE_STORAGE_KEY = "uurc.inputMode.v2";
+
 function readInputModePref(): RemoteInputMode {
   try {
-    const saved = globalThis.localStorage?.getItem("uurc.inputMode");
+    const saved = globalThis.localStorage?.getItem(INPUT_MODE_STORAGE_KEY);
     return saved === "text" ? "text" : "native";
   } catch {
     return "native";
@@ -121,7 +124,7 @@ function readInputModePref(): RemoteInputMode {
 
 function writeInputModePref(mode: RemoteInputMode): void {
   try {
-    globalThis.localStorage?.setItem("uurc.inputMode", mode);
+    globalThis.localStorage?.setItem(INPUT_MODE_STORAGE_KEY, mode);
   } catch {
     // 隐私模式下写不进去也无所谓，本次会话内仍生效。
   }
