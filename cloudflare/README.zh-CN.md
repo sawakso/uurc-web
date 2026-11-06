@@ -43,9 +43,11 @@ Worker 只认两种主人身份，配了前者就不再要口令：
 2. 建两条 Bypass 应用放行访客路径（脚本走 API，避开控制台表单的已知报错）：
 
    ```bash
-   CF_API_TOKEN=xxx CF_ACCOUNT_ID=xxx DOMAIN=uurc.sawakso.com \
-     node cloudflare/setup-access-bypass.mjs
+   CF_API_TOKEN=xxx node cloudflare/setup-access-bypass.mjs
    ```
+
+   令牌在 My Profile → API Tokens → Create Custom Token 建，
+   权限只需 `Account → Access: Apps and Policies → Edit`。账号 ID 可省略，脚本会自动识别。
 
 3. 把应用页上的 AUD 标签填进 `wrangler.jsonc` 的 `ACCESS_AUD`，然后推送部署。
 

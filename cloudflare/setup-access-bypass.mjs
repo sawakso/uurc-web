@@ -3,18 +3,33 @@
 // （新建公网主机名应用时保存会报 use_clientless_isolation_app_launcher_url ...）。
 //
 // 用法（Git Bash / macOS / Linux 都一样）：
-//   CF_API_TOKEN=xxx CF_ACCOUNT_ID=xxx DOMAIN=uurc.sawakso.com node cloudflare/setup-access-bypass.mjs
+//   CF_API_TOKEN=xxx node cloudflare/setup-access-bypass.mjs
+//   也可把令牌写进项目根目录 .cf-token（已 gitignore），然后直接 node cloudflare/setup-access-bypass.mjs
+//   CF_ACCOUNT_ID 可省略，只有一个账号时自动取。
 //
 // API Token 需要权限：Account → Access: Apps and Policies → Edit。
 // 脚本可重复执行：已存在的目标会被跳过，不会重复建。
 
-const token = process.env.CF_API_TOKEN?.trim();
-const accountId = process.env.CF_ACCOUNT_ID?.trim();
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+// 令牌文件固定读项目根目录，不受当前工作目录影响。
+const tokenFile = join(fileURLToPath(new URL("..", import.meta.url)), ".cf-token");
+
+let token = process.env.CF_API_TOKEN?.trim();
+let accountId = process.env.CF_ACCOUNT_ID?.trim();
 const domain = process.env.DOMAIN?.trim() ?? "uurc.sawakso.com";
 
-if (!token || !accountId) {
-  console.error("缺少 CF_API_TOKEN 或 CF_ACCOUNT_ID。示例：");
-  console.error("  CF_API_TOKEN=xxx CF_ACCOUNT_ID=xxx DOMAIN=uurc.sawakso.com node cloudflare/setup-access-bypass.mjs");
+// 顺手支持从文件读令牌，省得每次翻历史命令（文件已在 .gitignore 里）。
+if (!token && existsSync(tokenFile)) {
+  token = readFileSync(tokenFile, "utf8").trim();
+}
+
+if (!token) {
+  console.error("缺少 CF_API_TOKEN。两种给法都行：");
+  console.error("  A. 环境变量：CF_API_TOKEN=xxx node cloudflare/setup-access-bypass.mjs");
+  console.error("  B. 把令牌粘进项目根目录的 .cf-token 文件，然后直接 node cloudflare/setup-access-bypass.mjs");
   process.exit(1);
 }
 
@@ -41,6 +56,42 @@ const targets = [
   { name: "uurc-share-page", path: "share" },
   { name: "uurc-share-api", path: "api/share" },
 ];
+
+// 先验证令牌本身，避免后面报一堆看不懂的 403。
+let tokenStatus;
+try {
+  tokenStatus = await api("/user/tokens/verify");
+} catch (error) {
+  console.error(`令牌校验失败：${error.message}`);
+  console.error("常见原因：复制时多了空格、令牌已过期、或建令牌时没选 Account → Access: Apps and Policies → Edit。");
+  process.exit(1);
+}
+console.log(`令牌可用，状态：${tokenStatus?.status ?? "active"}`);
+
+// 省略 CF_ACCOUNT_ID 时自动探测：只有一个账号就直接用。
+if (!accountId) {
+  let accounts = [];
+  try {
+    accounts = (await api("/accounts")) ?? [];
+  } catch (error) {
+    console.error(`自动识别账号失败：${error.message}`);
+    console.error(
+      "请改用显式指定：CF_ACCOUNT_ID=xxx node cloudflare/setup-access-bypass.mjs（账号 ID 在控制台右下角或 URL 里）。",
+    );
+    process.exit(1);
+  }
+  if (accounts.length === 1) {
+    accountId = accounts[0].id;
+    console.log(`自动识别账号：${accounts[0].name}（${accountId}）`);
+  } else if (accounts.length === 0) {
+    console.error("这个令牌看不到任何账号。建令牌时请把 Account Resources 设为「Include → 你的账号」，不要选 User。");
+    process.exit(1);
+  } else {
+    console.error("令牌能看到多个账号，请显式指定 CF_ACCOUNT_ID。可选：");
+    for (const account of accounts) console.error(`  ${account.name}  ${account.id}`);
+    process.exit(1);
+  }
+}
 
 const existing = await api(`/accounts/${accountId}/access/apps`);
 const byTarget = new Map();
@@ -83,11 +134,24 @@ for (const target of targets) {
 // 把现有应用连同 AUD 打出来，方便直接填进 wrangler.jsonc 的 ACCESS_AUD。
 const after = await api(`/accounts/${accountId}/access/apps`);
 console.log("\n当前 Access 应用：");
+let consoleApp;
 for (const app of after ?? []) {
   const uris = [app.domain, ...(app.destinations ?? []).map((destination) => destination.uri)]
     .filter(Boolean)
     .join(", ");
   const decision = app.policies?.[0]?.decision ?? "-";
   console.log(`  ${app.name}  |  ${uris || "(无目标)"}  |  ${decision}  |  aud=${app.aud ?? "-"}`);
+  // 控制台那条：目标是整站（不是 /share 这类子路径），且策略不是 bypass。
+  const coversSite = app.domain === domain || (app.destinations ?? []).some((d) => d.uri === domain);
+  if (coversSite && decision !== "bypass") consoleApp = app;
 }
-console.log("\n把保护 uurc.sawakso.com 的那条应用的 aud 填到 wrangler.jsonc 的 ACCESS_AUD，然后推送部署。");
+
+if (consoleApp) {
+  console.log(`\n控制台应用的 aud：${consoleApp.aud}`);
+  console.log("把它填进 wrangler.jsonc 的 ACCESS_AUD，然后提交推送。");
+} else {
+  console.log("\n没找到覆盖整站 uurc.sawakso.com 的 Access 应用。");
+  console.log(
+    "请先在 Zero Trust → Access → Applications 里给 Worker 建一条 Allow 应用（仅放行你自己的邮箱），再跑一次本脚本。",
+  );
+}

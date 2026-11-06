@@ -3,6 +3,8 @@ artifacts/
 .env
 .env.*
 !.env.example
+# 本地 Cloudflare API Token（跑 cloudflare/setup-access-bypass.mjs 用），绝不提交
+.cf-token
 # wrangler 本地调试变量（可能含令牌），不要提交
 .dev.vars
 .dev.vars.*

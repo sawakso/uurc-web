@@ -32,11 +32,11 @@ UU 的房间只允许一个控制端，访客拿不到（也不应该拿到）ro
 目标分工很明确：**你自己**进控制台要过 Cloudflare Access（邮箱验证码），
 **访客**只面对分享口令，全程看不到 `cloudflareaccess.com`。
 
-| 路径 | 谁能进 | 怎么验证 |
-|---|---|---|
+| 路径                                                   | 谁能进           | 怎么验证                                         |
+| ------------------------------------------------------ | ---------------- | ------------------------------------------------ |
 | `/share/<id>`、`/api/share/<id>`、`/api/share/<id>/ws` | 任何拿到链接的人 | Access **Bypass**（不介入）+ 观看口令 / 控制口令 |
-| 设备列表、远控页 | 只有你自己 | Access 登录（Allow 策略） |
-| `/api/remote/*`、`/api/proxy/uu`、创建分享 | 只有你自己 | 同一个 Access 会话；Worker 校验 JWT |
+| 设备列表、远控页                                       | 只有你自己       | Access 登录（Allow 策略）                        |
+| `/api/remote/*`、`/api/proxy/uu`、创建分享             | 只有你自己       | 同一个 Access 会话；Worker 校验 JWT              |
 
 为什么必须拆成两条应用：Worker 级别的 Access 策略会覆盖这个 Worker 的**所有**域名和路径，
 而控制台里给 Worker 目标加 Path 是做不到的。所以给 `share` 与 `api/share` 各建一条
@@ -44,15 +44,22 @@ UU 的房间只允许一个控制端，访客拿不到（也不应该拿到）ro
 
 ### 一次性配置（三步）
 
-1. 建 API Token：Cloudflare 控制台 → My Profile → API Tokens → Create Token，
-   权限选 **Account → Access: Apps and Policies → Edit**，账号限定为你的账号。
+1. 建 API Token：Cloudflare 控制台右上头像 → **My Profile** → 左侧 **API Tokens** → **Create Token**
+   → 底部 **Create Custom Token**：
+   - Permissions：`Account` / `Access: Apps and Policies` / `Edit`
+   - Account Resources：`Include` / 你的账号
+   - Zone Resources：留空（不需要）
+   - TTL：留默认即可，配完可删
 
 2. 建两条 Bypass 应用（脚本可重复执行，已存在的会跳过）：
 
    ```bash
-   CF_API_TOKEN=xxx CF_ACCOUNT_ID=xxx DOMAIN=uurc.sawakso.com \
-     node cloudflare/setup-access-bypass.mjs
+   CF_API_TOKEN=xxx node cloudflare/setup-access-bypass.mjs
    ```
+
+   `CF_ACCOUNT_ID` 可省略（只有一个账号时自动识别）；也可以把令牌粘进项目根目录
+   `.cf-token`（已 gitignore），之后直接 `node cloudflare/setup-access-bypass.mjs`。
+   脚本会先验令牌、再建应用，失败时直接说是令牌权限不够还是账号选错。
 
    脚本走 API 而不是控制台表单，因为表单保存时会报
    `use_clientless_isolation_app_launcher_url can only be enabled for apps with private destinations`
@@ -72,32 +79,32 @@ UU 的房间只允许一个控制端，访客拿不到（也不应该拿到）ro
 
 两个变量都在 `wrangler.jsonc` 的 `vars` 里，不是机密：
 
-| 变量 | 值 |
-|---|---|
-| `ACCESS_TEAM_DOMAIN` | `zechuanwangyou.cloudflareaccess.com` |
-| `ACCESS_AUD` | 该应用的「应用程序受众 (AUD) 标签」，一串 64 位十六进制 |
+| 变量                 | 值                                                      |
+| -------------------- | ------------------------------------------------------- |
+| `ACCESS_TEAM_DOMAIN` | `zechuanwangyou.cloudflareaccess.com`                   |
+| `ACCESS_AUD`         | 该应用的「应用程序受众 (AUD) 标签」，一串 64 位十六进制 |
 
 `ACCESS_AUD` 留空等于关闭 Access 模式，退回「口令 + 签名 Cookie」的兜底方式
 （那时需要 `npx wrangler secret put OWNER_PASSPHRASE`，至少 8 位）。两套门不会同时生效。
 
 ### 出问题先看这一句
 
-| 现象 | 原因 |
-|---|---|
+| 现象                                     | 原因                                                      |
+| ---------------------------------------- | --------------------------------------------------------- |
 | 控制台显示「Cloudflare Access 没有放行」 | `ACCESS_AUD` 与该应用不匹配，或 Access 应用没覆盖当前路径 |
-| 访客看到 `cloudflareaccess.com` 验证码页 | 两条 Bypass 应用有一条没生效（路径写错、或只建了一条） |
-| 接口 503 且提示没配置 | `ACCESS_AUD` 和 `OWNER_PASSPHRASE` 都没配 |
+| 访客看到 `cloudflareaccess.com` 验证码页 | 两条 Bypass 应用有一条没生效（路径写错、或只建了一条）    |
+| 接口 503 且提示没配置                    | `ACCESS_AUD` 和 `OWNER_PASSPHRASE` 都没配                 |
 
 ## 访客黑屏怎么排查
 
 访客页会把实时状态写在画面上，按它显示的那一句对号入座：
 
-| 画面上显示 | 含义 | 怎么办 |
-|---|---|---|
-| 连线状态：`connecting` / `new` 停留很久 | 信令通了但 P2P 没连上 | 换网络重试；对称 NAT 需要 TURN |
-| 连线已建立，但主控端没有送来视频轨 | 主控端没有画面可转发 | 主控先连上被控设备、画面出来后重新生成链接 |
-| 已收到视频轨（WxH），但还没有解码出画面 | 轨道在但没数据 | 看「路径」：`relay→relay` 说明走了中继且不通 |
-| `1920×1080 · 已解码 N 帧 · 路径 host→host` | 正常在播 | — |
+| 画面上显示                                 | 含义                  | 怎么办                                       |
+| ------------------------------------------ | --------------------- | -------------------------------------------- |
+| 连线状态：`connecting` / `new` 停留很久    | 信令通了但 P2P 没连上 | 换网络重试；对称 NAT 需要 TURN               |
+| 连线已建立，但主控端没有送来视频轨         | 主控端没有画面可转发  | 主控先连上被控设备、画面出来后重新生成链接   |
+| 已收到视频轨（WxH），但还没有解码出画面    | 轨道在但没数据        | 看「路径」：`relay→relay` 说明走了中继且不通 |
+| `1920×1080 · 已解码 N 帧 · 路径 host→host` | 正常在播              | —                                            |
 
 主控端面板也会提示「当前没有画面可转发」，避免在没画面时分享出去。
 
