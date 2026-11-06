@@ -58,6 +58,10 @@ export function RemoteControlStage({
       role="application"
       aria-label="远控画面"
       tabIndex={0}
+      onKeyDown={onRemoteStageKeyDown}
+      onKeyUp={onRemoteStageKeyUp}
+      onBlur={onRemoteStageBlur}
+      onPaste={onRemoteStagePaste}
       onPointerDown={onRemoteStagePointerDown}
       onPointerMove={onRemoteStagePointerMove}
       onPointerUp={onRemoteStagePointerUp}
@@ -70,9 +74,11 @@ export function RemoteControlStage({
       }}
     >
       {/*
-        键盘与输入法的真正落点。浏览器只在可编辑元素上启动输入法合成，
-        画面本身是 div，所以把按键/合成事件全部接到这个 1px 透明输入框上
-        （不占位、不可见、不接受指针事件，完全不改变画面外观）。
+        只在「字符上屏」模式下才用的落点：浏览器只在可编辑元素上启动输入法合成。
+        物理按键模式（默认）焦点直接放在上面的画面 div 上——那里不可编辑，本机输入法
+        完全不介入，按键原样送去被控机，中文由被控机自己的输入法组字。
+        这个输入框 1px 透明、不占位、不接受指针事件，两种模式都不改变画面外观。
+        键盘事件统一挂在画面 div 上（事件从输入框冒泡上来），避免两处都处理导致重复发送。
       */}
       <input
         ref={remoteStageInputRef}
@@ -84,12 +90,8 @@ export function RemoteControlStage({
         autoCapitalize="off"
         spellCheck={false}
         tabIndex={-1}
-        onKeyDown={onRemoteStageKeyDown}
-        onKeyUp={onRemoteStageKeyUp}
         onCompositionEnd={onRemoteStageCompositionEnd}
         onInput={onRemoteStageInput}
-        onPaste={onRemoteStagePaste}
-        onBlur={onRemoteStageBlur}
       />
       {hasRemoteVideo ? (
         <>

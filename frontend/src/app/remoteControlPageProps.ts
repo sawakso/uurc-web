@@ -126,14 +126,14 @@ export interface RemoteControlPageProps {
   onForceJoinChange: (forceJoin: boolean) => void;
   onNextAction: () => void;
   onReconnectRemote: () => void;
-  onRemoteStageKeyDown: (event: KeyboardEvent<HTMLInputElement>) => void;
-  onRemoteStageKeyUp: (event: KeyboardEvent<HTMLInputElement>) => void;
+  onRemoteStageKeyDown: (event: KeyboardEvent<HTMLElement>) => void;
+  onRemoteStageKeyUp: (event: KeyboardEvent<HTMLElement>) => void;
   onRemoteStageBlur: () => void;
-  onRemoteStagePaste: (event: ClipboardEvent<HTMLInputElement>) => void;
+  onRemoteStagePaste: (event: ClipboardEvent<HTMLElement>) => void;
   onRemoteStageCompositionEnd: (event: CompositionEvent<HTMLInputElement>) => void;
   onRemoteStageInput: (event: FormEvent<HTMLInputElement>) => void;
-  // 输入方式：text = 按字符上屏（大小写/符号精确，配合本机输入法可打中文，默认）；
-  // native = 只发物理键，由被控端自己的键盘布局/输入法解释（兜底）。
+  // 输入方式：native = 只发物理键，由被控机自己的键盘布局/输入法组字（默认，能打中文）；
+  // text = 按字符上屏（text_input），绕开被控端输入法，仅作兜底。
   inputMode: RemoteInputMode;
   onInputModeChange: (mode: RemoteInputMode) => void;
   onRemoteStagePointerCancel: (event: PointerEvent<HTMLDivElement>) => void;

@@ -74,6 +74,8 @@ export type RemoteVideoSamplesById = Record<string, BrowserRemoteVideoElementSam
 export const SELF_DEVICE_BLOCKED_REASON = "不能控制当前设备。";
 
 // 远控输入方式。
-// native：只发物理键，由被控端自己的输入法合成——这样才能在被控机上打中文；
-// text：把字符整段上屏（text_input），不依赖被控端输入法，但中文无从产生。
+// native（默认）：只发物理按键，且本地焦点放在不可编辑的画面上——浏览器只在可编辑元素上
+//   启动输入法合成，所以本机输入法完全不介入，字母原样送到被控机，由**被控机自己的输入法**
+//   组字出候选。这是"在被控机上打中文"的唯一可行方式。
+// text：把字符整段上屏（text_input），大小写精确，但绕过被控端输入法，只能打本机已经上屏的文字。
 export type RemoteInputMode = "native" | "text";

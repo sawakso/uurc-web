@@ -57,8 +57,8 @@ export function RemoteControlSettingsDrawer({
       <label className="control-field">
         <span className="control-field-label">键盘输入方式</span>
         <select value={inputMode} onChange={(event) => onInputModeChange(event.target.value === "text" ? "text" : "native")}>
-          <option value="text">字符上屏（推荐：大小写精确，可打中文）</option>
-          <option value="native">物理按键（由被控端布局/输入法解释）</option>
+          <option value="native">物理按键（推荐：由被控机自己的输入法组字，能打中文）</option>
+          <option value="text">字符上屏（被控端不认物理键时用，打不出中文）</option>
         </select>
       </label>
       {selectedDevice ? (

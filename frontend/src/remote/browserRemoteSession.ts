@@ -1125,8 +1125,9 @@ export class BrowserRemoteSession {
     if (isMacPlatform(this.targetPlatform)) {
       return buildStreamerMacKeyboardInputMessage(input);
     }
-    // 平台未知时按 Windows 发：远控 PC 是主场景，而裸 Android 键码发过去
-    // 会被 Windows 端当成无效 VK（打字完全没反应），比"发错格式"更糟。
+    // Windows（或平台未知）走真机抓包确认过的格式：VK 码 + interrept。
+    // 被控端把 VK 还原成"按下哪个物理键"，之后是它自己的键盘布局与输入法在起作用——
+    // 也就是说中文是在被控机上组字的，不由本机输入法决定。
     if (isWindowsPlatform(this.targetPlatform) || this.targetPlatform === undefined) {
       return buildStreamerWindowsKeyboardInputMessage(input);
     }

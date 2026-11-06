@@ -7,6 +7,7 @@ import {
   analyzeRemoteSignalReadiness,
   buildDefaultStreamerConnectOptionsBase64,
   buildStreamerTextInputMessage,
+  buildStreamerWindowsKeyboardInputMessage,
 } from "@uurc/shared/streamerProtocol";
 import App from "../src/App.js";
 import type { BrowserRemoteSessionState } from "../src/remote/browserRemoteSession.js";
@@ -864,16 +865,31 @@ describe("App console", () => {
     });
     expect(screen.queryByRole("button", { name: "打开远控画面" })).not.toBeInTheDocument();
 
-    // 连接后默认进入控制状态：自动启用输入控制，并把焦点交给画面里的键盘落点
-    // （隐藏输入框——浏览器只给可编辑元素启动输入法）。
+    // 连接后默认进入控制状态：自动启用输入控制。物理按键模式下焦点落在画面本身
+    // （div，不可编辑——浏览器不会给非可编辑元素启动输入法，本机输入法因此完全不介入）。
     const controlSegment = await screen.findByRole("button", { name: "控制中" });
     expect(controlSegment).toHaveAttribute("aria-pressed", "true");
+    const stage = screen.getByRole("application", { name: "远控画面" });
+    expect(document.activeElement).toBe(stage);
+
+    // 默认「物理按键」：一次按键 = 按下 + 抬起两帧键码，交给被控机用自己的布局/输入法解释。
+    const beforeNative = TestPeerConnection.sentByLabel.CONTROL_DATA_CHANNEL?.length ?? 0;
+    await user.keyboard("a");
+    const frames = TestPeerConnection.sentByLabel.CONTROL_DATA_CHANNEL ?? [];
+    expect(frames.length - beforeNative).toBe(2);
+    expect(frames.at(-2)).toBe(
+      buildStreamerWindowsKeyboardInputMessage({ action: "keyboardPress", value: 29 }).length,
+    );
+    expect(frames.at(-1)).toBe(
+      buildStreamerWindowsKeyboardInputMessage({ action: "keyboardRelease", value: 29 }).length,
+    );
+
+    // 切到「字符上屏」：落点换成隐藏输入框（要本机输入法合成），字符整段上屏。
+    await user.selectOptions(screen.getByRole("combobox", { name: /键盘输入方式/ }), "text");
     const keySink = document.querySelector<HTMLInputElement>(".stage-input-sink");
     expect(keySink).not.toBeNull();
     expect(document.activeElement).toBe(keySink);
 
-    // 默认「字符上屏」：小写字母按字符原样送达（单帧 text_input）。
-    // 这条路径不经过被控端的键码/键盘布局/CapsLock，所以小写就是小写。
     const beforeLower = TestPeerConnection.sentByLabel.CONTROL_DATA_CHANNEL?.length ?? 0;
     await user.keyboard("a");
     const afterLower = TestPeerConnection.sentByLabel.CONTROL_DATA_CHANNEL?.length ?? 0;
@@ -896,12 +912,13 @@ describe("App console", () => {
       buildStreamerTextInputMessage("你好").length,
     );
 
-    // 切到「物理按键」兜底：同一个键改为发「按下+抬起」两个键帧。
+    // 切回「物理按键」：落点回到画面本身，本机输入法不再参与（拼音交给被控机组字）。
     await user.selectOptions(screen.getByRole("combobox", { name: /键盘输入方式/ }), "native");
-    const beforeNative = TestPeerConnection.sentByLabel.CONTROL_DATA_CHANNEL?.length ?? 0;
+    expect(document.activeElement).toBe(stage);
+    const beforeBack = TestPeerConnection.sentByLabel.CONTROL_DATA_CHANNEL?.length ?? 0;
     await user.keyboard("a");
-    const afterNative = TestPeerConnection.sentByLabel.CONTROL_DATA_CHANNEL?.length ?? 0;
-    expect(afterNative - beforeNative).toBe(2);
+    const afterBack = TestPeerConnection.sentByLabel.CONTROL_DATA_CHANNEL?.length ?? 0;
+    expect(afterBack - beforeBack).toBe(2);
 
     // 点“仅查看”暂停操作，开关切回仅查看态。
     await user.click(screen.getByRole("button", { name: "仅查看" }));

@@ -109,13 +109,13 @@ function readAutoConnectPref(): boolean {
   }
 }
 
-// 输入方式偏好：默认 text（按字符上屏，大小写/符号精确，配合本机输入法还能打中文）。
-// native 仅作为「被控端不认 text_input」时的兜底，需手动切换。
+// 输入方式偏好：默认 native（发物理键，由被控机自己的输入法组字，能打中文）。
 function readInputModePref(): RemoteInputMode {
   try {
-    return globalThis.localStorage?.getItem("uurc.inputMode") === "native" ? "native" : "text";
+    const saved = globalThis.localStorage?.getItem("uurc.inputMode");
+    return saved === "text" ? "text" : "native";
   } catch {
-    return "text";
+    return "native";
   }
 }
 
@@ -896,14 +896,14 @@ export function useRemoteControlController() {
   function handleInputModeChange(mode: RemoteInputMode) {
     setInputMode(mode);
     writeInputModePref(mode);
-    // 切模式后把焦点留在画面上，键盘立即按新模式生效。
-    focusStageInput();
+    // 切模式后把焦点重新落到正确的落点（text=隐藏输入框，native=画面本身）并立即生效。
+    focusStageInput(mode);
   }
 
   function handleRemoteStagePointerDown(event: PointerEvent<HTMLDivElement>) {
     if (!inputControlActive || !browserRemoteSession.current) return;
     event.preventDefault();
-    // 焦点交给隐藏输入框（不是画面本身）：这样点击画面后能立刻打字，输入法也能正常启动。
+    // 点击画面后立刻进入可打字状态；落点按当前输入方式选（物理键模式=画面本身）。
     focusStageInput();
     activePointerId.current = event.pointerId;
     if (typeof event.currentTarget.setPointerCapture === "function") {
@@ -1016,11 +1016,18 @@ export function useRemoteControlController() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在画面流本身变化时重新协商
   }, [primaryRemoteStream]);
 
-  // 键盘与输入法的落点是画面里的 1px 隐藏输入框（浏览器只给可编辑元素启动输入法）。
-  function focusStageInput(): void {
+  // 键盘的落点决定输入法归谁：
+  // - native：焦点放在画面本身（div，tabIndex=0，不可编辑）。浏览器只在可编辑元素上启动
+  //   输入法合成，于是本机输入法根本不介入，按键原样送往被控机，中文由**被控机自己的输入法**组字。
+  // - text：焦点放在 1px 隐藏输入框，本机输入法上屏后整段 text_input 发送。
+  function focusStageInput(mode: RemoteInputMode = inputMode): void {
+    if (mode !== "text") {
+      remoteStageRef.current?.focus({ preventScroll: true });
+      return;
+    }
     const sink = remoteStageInputRef.current;
     if (!sink) {
-      remoteStageRef.current?.focus();
+      remoteStageRef.current?.focus({ preventScroll: true });
       return;
     }
     sink.focus({ preventScroll: true });
@@ -1044,7 +1051,7 @@ export function useRemoteControlController() {
 
   // 输入法上屏后，Chrome/Safari 常补发一个 Enter 或同字符的 keydown；吞掉它，
   // 否则每输入一次中文就会多一个换行。
-  function isCompositionEcho(event: KeyboardEvent<HTMLInputElement>): boolean {
+  function isCompositionEcho(event: KeyboardEvent<HTMLElement>): boolean {
     const at = lastCompositionEndAt.current;
     if (!at || Date.now() - at > 150) return false;
     lastCompositionEndAt.current = 0;
@@ -1053,16 +1060,19 @@ export function useRemoteControlController() {
   }
 
   // 两种输入方式：
-  // text（默认）——可打印字符按“字符”上屏（text_input）：大小写、符号都由本机键盘/输入法决定，
-  //   被控端不需要理解键码，也不会被它自己的 CapsLock/布局改写；输入法合成结果整段上屏，
-  //   所以中文也能打。
-  // native——只送物理键，由被控端自己的键盘布局/输入法解释。某些被控端不认 text_input 时用。
-  function handleRemoteStageKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+  // native（默认）——只送物理键。焦点在画面（不可编辑）上，浏览器不会给非可编辑元素启动输入法，
+  //   所以本机输入法完全不介入：字母/数字/符号按物理位置原样送达被控机，由被控机的键盘布局与
+  //   输入法解释。中文是在**被控机**上组字出候选的，本机输入法不参与。
+  // text——可打印字符整段上屏（text_input）：大小写精确，但绕开被控端输入法，打不出中文；
+  //   只作为“被控端不认物理键”时的兜底。
+  function handleRemoteStageKeyDown(event: KeyboardEvent<HTMLElement>) {
     const session = browserRemoteSession.current;
     if (!inputControlActive || !session) return;
 
-    // 输入法合成中：按键属于拼音/候选过程，等 compositionend 整段上屏。
-    if (event.nativeEvent.isComposing) return;
+    // text 模式：输入法合成中的按键属于拼音/候选过程，等 compositionend 整段上屏。
+    // native 模式没有本机合成（焦点不在可编辑元素上），不做这个判断——
+    // 万一某些浏览器仍然报告合成中，keydown 里的 event.code 依旧是正确的物理键，照发即可。
+    if (inputMode === "text" && event.nativeEvent.isComposing) return;
     if (isCompositionEcho(event)) {
       event.preventDefault();
       clearStageInputSink();
@@ -1098,8 +1108,14 @@ export function useRemoteControlController() {
     const comboModifiers = inputMode === "text" ? collectComboModifierCodes(event) : [];
 
     const value = toRemoteKeyValue(event);
-    // 键码未收录：与其发一个被控端看不懂的值，不如不发（避免误触发被控端按键）。
-    if (value === undefined) return;
+    if (value === undefined) {
+      // 手机软键盘 / 特殊输入法只给字符、不给物理键（event.code 为空）：
+      // 这时退回字符上屏，至少能把字打进去，而不是毫无反应。
+      if (!event.ctrlKey && !event.metaKey && !event.altKey && [...event.key].length === 1 && !isHoldModifier) {
+        sendRemoteText(event.key);
+      }
+      return;
+    }
     try {
       for (const modifier of comboModifiers) {
         session.sendKeyboardInput({ action: "keyboardPress", value: modifier });
@@ -1117,7 +1133,7 @@ export function useRemoteControlController() {
   }
 
   // 文本模式下组合键需要的修饰键（Android KEYCODE_CTRL_LEFT / ALT_LEFT / META_LEFT）。
-  function collectComboModifierCodes(event: KeyboardEvent<HTMLInputElement>): number[] {
+  function collectComboModifierCodes(event: KeyboardEvent<HTMLElement>): number[] {
     const codes: number[] = [];
     if (event.ctrlKey) codes.push(113);
     if (event.altKey) codes.push(57);
@@ -1131,7 +1147,8 @@ export function useRemoteControlController() {
     lastCompositionEndAt.current = Date.now();
     lastCompositionText.current = data;
     clearStageInputSink();
-    if (!inputControlActive || !data) return;
+    // 物理键模式下拼音是在被控机上合成的，本机若也有输入法，上屏文本不能重复发送。
+    if (inputMode !== "text" || !inputControlActive || !data) return;
     sendRemoteText(data);
   }
 
@@ -1161,7 +1178,7 @@ export function useRemoteControlController() {
     }
   }
 
-  function handleRemoteStageKeyUp(event: KeyboardEvent<HTMLInputElement>) {
+  function handleRemoteStageKeyUp(event: KeyboardEvent<HTMLElement>) {
     if (!inputControlActive || !browserRemoteSession.current) return;
     // 文本模式下没有按住过修饰键（组合键是一次性包发），所以也不需要释放。
     if (inputMode === "text") return;
@@ -1184,7 +1201,7 @@ export function useRemoteControlController() {
     browserRemoteSession.current?.releaseAllInputs();
   }
 
-  function handleRemoteStagePaste(event: ClipboardEvent<HTMLInputElement>) {
+  function handleRemoteStagePaste(event: ClipboardEvent<HTMLElement>) {
     // 右键菜单/系统菜单触发的粘贴走这里；键盘 Ctrl+V 已在 keydown 里处理并 preventDefault。
     if (!inputControlActive || !browserRemoteSession.current) return;
     const text = event.clipboardData?.getData("text") ?? "";
