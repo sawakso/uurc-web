@@ -65,8 +65,12 @@ UU 的房间只允许一个控制端，访客拿不到（也不应该拿到）ro
    `use_clientless_isolation_app_launcher_url can only be enabled for apps with private destinations`
    （那个开关只服务私有目标）。
 
-3. 把输出里保护 `uurc.sawakso.com` 那条应用的 `aud` 填到 `wrangler.jsonc` 的 `ACCESS_AUD`，
-   然后推送部署。
+3. 把输出里保护 `uurc.sawakso.com` 那条应用的 `aud` 填到 Worker 的 **Secret**（不是 `wrangler.jsonc`）：
+   Workers & Pages → `uurc-web` → Settings → Variables and Secrets → Add → Secret，名称 `ACCESS_AUD`。
+   保存即生效，不需要改文件、不需要重新推送。
+
+> 不想跑脚本也可以全在控制台点完：见 `cloudflare/README.zh-CN.md` 的「方式 1 / 方式 2」。
+> 方式 1（口令登录）完全不需要建 Bypass 应用，代价是控制台要输口令、没有邮箱验证。
 
 ### Worker 端怎么认人
 
@@ -77,15 +81,18 @@ UU 的房间只允许一个控制端，访客拿不到（也不应该拿到）ro
 任何能直达 Worker 的人自己发一个同名请求头就能冒充主人。验签则不存在这个口子——
 签名不对就是没通过。
 
-两个变量都在 `wrangler.jsonc` 的 `vars` 里，不是机密：
+两个变量都在 Worker 环境里，不是机密：
 
-| 变量                 | 值                                                      |
-| -------------------- | ------------------------------------------------------- |
-| `ACCESS_TEAM_DOMAIN` | `zechuanwangyou.cloudflareaccess.com`                   |
-| `ACCESS_AUD`         | 该应用的「应用程序受众 (AUD) 标签」，一串 64 位十六进制 |
+| 变量                 | 放在哪                                  | 值                                                      |
+| -------------------- | --------------------------------------- | ------------------------------------------------------- |
+| `ACCESS_TEAM_DOMAIN` | `wrangler.jsonc` 的 `vars`              | `zechuanwangyou.cloudflareaccess.com`                   |
+| `ACCESS_AUD`         | 控制台 Secret（推荐）或本地 `.dev.vars` | 该应用的「应用程序受众 (AUD) 标签」，一串 64 位十六进制 |
 
-`ACCESS_AUD` 留空等于关闭 Access 模式，退回「口令 + 签名 Cookie」的兜底方式
+`ACCESS_AUD` 缺失等于关闭 Access 模式，退回「口令 + 签名 Cookie」的兜底方式
 （那时需要 `npx wrangler secret put OWNER_PASSPHRASE`，至少 8 位）。两套门不会同时生效。
+
+之所以没把 `ACCESS_AUD` 写进 `wrangler.jsonc` 的 `vars`：`vars` 每次部署都会被配置覆盖，
+而它是部署后才知道的值，写进去就意味着「改一次 AUD 就要改文件再推一次」；Secret 不受部署影响。
 
 ### 出问题先看这一句
 

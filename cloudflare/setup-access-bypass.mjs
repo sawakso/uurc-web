@@ -148,7 +148,9 @@ for (const app of after ?? []) {
 
 if (consoleApp) {
   console.log(`\n控制台应用的 aud：${consoleApp.aud}`);
-  console.log("把它填进 wrangler.jsonc 的 ACCESS_AUD，然后提交推送。");
+  console.log("把它填到控制台（不用改文件）：");
+  console.log("  Workers & Pages → uurc-web → Settings → Variables and Secrets");
+  console.log("  → Add → 类型 Secret，名称 ACCESS_AUD，值粘贴上面这串 → 保存即生效。");
 } else {
   console.log("\n没找到覆盖整站 uurc.sawakso.com 的 Access 应用。");
   console.log(

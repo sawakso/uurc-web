@@ -9,49 +9,52 @@
   "routes": [
     {
       "pattern": "uurc.sawakso.com",
-      "custom_domain": true
-    }
+      "custom_domain": true,
+    },
   ],
   // 主人身份来源：Cloudflare Access。Worker 会用 Access 公钥校验 JWT（见 cloudflare/src/accessAuth.ts），
   // 所以控制台不需要第二个口令，分享路径则通过 Access 的 Bypass 应用完全跳过验证。
-  // ACCESS_AUD 在 Zero Trust → Applications → 该应用的「应用程序受众 (AUD) 标签」里复制。
+  //
+  // ACCESS_AUD 故意不写在这里：它是部署后才知道的值，写成 vars 会导致「改一次 AUD 就要改文件 + 推一次」。
+  // 改为在控制台加 Secret（Workers & Pages → uurc-web → Settings → Variables and Secrets →
+  // Add → 类型选 Secret，名称 ACCESS_AUD），保存即生效，重新部署也不会被覆盖。
+  // 没配 AUD 时自动退回到 OWNER_PASSPHRASE 口令模式（见 cloudflare/README.zh-CN.md）。
   "vars": {
     "ACCESS_TEAM_DOMAIN": "zechuanwangyou.cloudflareaccess.com",
-    "ACCESS_AUD": ""
   },
   "assets": {
     "directory": "./frontend/dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*"]
+    "run_worker_first": ["/api/*"],
   },
   "build": {
-    "command": "npm run build:cloudflare"
+    "command": "npm run build:cloudflare",
   },
   "durable_objects": {
     "bindings": [
       {
         "name": "REMOTE_SIGNAL_SESSION",
-        "class_name": "RemoteSignalSession"
+        "class_name": "RemoteSignalSession",
       },
       {
         // 分享链接（访客用口令加入）的信令转发实例，一个分享 ID 一个。
         "name": "SHARE_SESSION",
-        "class_name": "ShareSession"
-      }
-    ]
+        "class_name": "ShareSession",
+      },
+    ],
   },
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["RemoteSignalSession"]
+      "new_sqlite_classes": ["RemoteSignalSession"],
     },
     {
       "tag": "v2",
-      "new_sqlite_classes": ["ShareSession"]
-    }
+      "new_sqlite_classes": ["ShareSession"],
+    },
   ],
   "observability": {
-    "enabled": true
-  }
+    "enabled": true,
+  },
 }
