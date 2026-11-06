@@ -49,15 +49,17 @@ export default {
       if (guard) return guard;
       return handleUuProxy(request);
     }
-    if (url.pathname.startsWith("/api/remote/")) {
-      return handleRemoteApi(request, env);
-    }
-    // 创建分享：走 Access 保护的老前缀（只有站点所有者能建），
+    // 创建分享：走 Access 保护的前缀（只有站点所有者能建），
     // 这样 /api/share/* 可以被 Access 放行给访客，而创建口仍然锁在门内。
-    if (url.pathname === "/api/remote/share/create" && request.method === "POST") {
+    // 必须排在 "/api/remote/" 前缀判断之前——否则会被远端 API 路由吞掉，返回 not found。
+    if (url.pathname === "/api/remote/share/create") {
+      if (request.method !== "POST") return json({ error: "Method not allowed" }, { status: 405 });
       const guard = assertAccessIdentity(request, env);
       if (guard) return guard;
       return handleShareCreate(request, env);
+    }
+    if (url.pathname.startsWith("/api/remote/")) {
+      return handleRemoteApi(request, env);
     }
     // 分享链接：访客没有 Cloudflare Access 身份，所以这条路径自身承担鉴权（口令 / 主控令牌）。
     if (url.pathname.startsWith("/api/share/")) {
