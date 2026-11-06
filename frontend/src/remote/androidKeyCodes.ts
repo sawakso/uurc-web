@@ -53,6 +53,16 @@ const ANDROID_KEY_CODES_BY_DOM_CODE: Record<string, number> = {
   ShiftRight: 60,
 };
 
+// 小键盘运算符：缺了它们，数字小键盘的 + - * / 和回车都没反应。
+Object.assign(ANDROID_KEY_CODES_BY_DOM_CODE, {
+  NumpadDivide: 154,
+  NumpadMultiply: 155,
+  NumpadSubtract: 156,
+  NumpadAdd: 157,
+  NumpadDecimal: 158,
+  NumpadEnter: 160,
+});
+
 for (let index = 0; index < 10; index += 1) {
   ANDROID_KEY_CODES_BY_DOM_CODE[`Digit${index}`] = index === 0 ? 7 : 7 + index;
   ANDROID_KEY_CODES_BY_DOM_CODE[`Numpad${index}`] = 144 + index;
@@ -62,6 +72,9 @@ for (let index = 0; index < 26; index += 1) {
   ANDROID_KEY_CODES_BY_DOM_CODE[`Key${String.fromCharCode(65 + index)}`] = 29 + index;
 }
 
-export function toAndroidKeyCodeFromDomEvent(event: DomKeyboardEventLike): string | number {
-  return ANDROID_KEY_CODES_BY_DOM_CODE[event.code] ?? event.key;
+// 只按物理键位（event.code）查表。查不到就返回 undefined ——
+// 不要把 event.key 当键码发出去：被控端按字符解析时，一个 "CapsLock" 之类的字符串
+// 可能被当成真实按键（大写锁死就是这么来的），字母大小写也会随本机布局漂移。
+export function toAndroidKeyCodeFromDomEvent(event: DomKeyboardEventLike): number | undefined {
+  return ANDROID_KEY_CODES_BY_DOM_CODE[event.code];
 }

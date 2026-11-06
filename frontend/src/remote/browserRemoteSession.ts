@@ -1079,7 +1079,8 @@ export class BrowserRemoteSession {
     const inputDisplayId = this.resolveInputDisplayId();
     // 桌面被控端用裸 JSON；移动被控端再包一层 protobuf。
     // wire="desktop" 用于平台未知但需要强制按桌面格式发送的场景（见 sendTypedText）。
-    const useDesktopWire = wire === "desktop" || isDesktopPlatform(this.targetPlatform);
+    // 平台未知时也按桌面发：远控 PC 是主场景，包成 protobuf 会让 Windows 端整条消息解析失败。
+    const useDesktopWire = wire === "desktop" || isDesktopPlatform(this.targetPlatform) || this.targetPlatform === undefined;
     const payload = useDesktopWire
       ? inputMessage
       : encodeStreamerInputMessage({
@@ -1124,7 +1125,9 @@ export class BrowserRemoteSession {
     if (isMacPlatform(this.targetPlatform)) {
       return buildStreamerMacKeyboardInputMessage(input);
     }
-    if (isWindowsPlatform(this.targetPlatform)) {
+    // 平台未知时按 Windows 发：远控 PC 是主场景，而裸 Android 键码发过去
+    // 会被 Windows 端当成无效 VK（打字完全没反应），比"发错格式"更糟。
+    if (isWindowsPlatform(this.targetPlatform) || this.targetPlatform === undefined) {
       return buildStreamerWindowsKeyboardInputMessage(input);
     }
     return buildStreamerKeyboardInputMessage(input);

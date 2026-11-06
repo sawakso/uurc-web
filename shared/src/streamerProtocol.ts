@@ -1591,6 +1591,8 @@ export const STREAMER_ANDROID_TO_WINDOWS_KEY_CODES: Readonly<Record<number, numb
   131: 112, 132: 113, 133: 114, 134: 115, 135: 116, 136: 117, 137: 118, 138: 119, 139: 120, 140: 121, 141: 122, 142: 123,
   // 小键盘 0-9 -> VK_NUMPAD0-9 (0x60-0x69)
   144: 96, 145: 97, 146: 98, 147: 99, 148: 100, 149: 101, 150: 102, 151: 103, 152: 104, 153: 105,
+  // 小键盘运算符：VK_DIVIDE/MULTIPLY/SUBTRACT/ADD/DECIMAL/NUMPAD_ENTER
+  154: 111, 155: 106, 156: 109, 157: 107, 158: 110, 160: 13,
 } as const;
 
 export interface StreamerTouchSurface {

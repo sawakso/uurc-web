@@ -17,6 +17,24 @@
   user-select: none;
 }
 
+/* 键盘/输入法的隐藏落点：不占位、不可见、不挡鼠标，只负责接收按键与合成事件。
+   浏览器只在可编辑元素上启动输入法，所以必须有这个真实输入框。 */
+.stage-input-sink {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  outline: none;
+  opacity: 0;
+  font-size: 16px; /* 避免 iOS 聚焦时自动放大页面 */
+  pointer-events: none;
+  z-index: 1;
+}
+
 .remote-video-grid {
   position: absolute;
   inset: 0;

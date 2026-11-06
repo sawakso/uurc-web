@@ -10,6 +10,7 @@ export function RemoteControlStage({
   onRemoteStageKeyUp,
   onRemoteStageBlur,
   onRemoteStageCompositionEnd,
+  onRemoteStageInput,
   onRemoteStagePaste,
   onRemoteStagePointerCancel,
   onRemoteStagePointerDown,
@@ -19,6 +20,7 @@ export function RemoteControlStage({
   onRemoteVideoSample,
   primaryRemoteVideoActive,
   primaryRemoteVideoId,
+  remoteStageInputRef,
   remoteStageRef,
   remoteStageViewMode,
   remoteVideoStreams,
@@ -32,6 +34,7 @@ export function RemoteControlStage({
   | "onRemoteStageKeyUp"
   | "onRemoteStageBlur"
   | "onRemoteStageCompositionEnd"
+  | "onRemoteStageInput"
   | "onRemoteStagePaste"
   | "onRemoteStagePointerCancel"
   | "onRemoteStagePointerDown"
@@ -41,6 +44,7 @@ export function RemoteControlStage({
   | "onRemoteVideoSample"
   | "primaryRemoteVideoActive"
   | "primaryRemoteVideoId"
+  | "remoteStageInputRef"
   | "remoteStageRef"
   | "remoteStageViewMode"
   | "remoteVideoStreams"
@@ -64,12 +68,29 @@ export function RemoteControlStage({
         // 导致“抬起右键”发不出去、被控端右键卡死、之后左键都被当右键。
         if (inputControlActive) event.preventDefault();
       }}
-      onKeyDown={onRemoteStageKeyDown}
-      onKeyUp={onRemoteStageKeyUp}
-      onBlur={onRemoteStageBlur}
-      onPaste={onRemoteStagePaste}
-      onCompositionEnd={onRemoteStageCompositionEnd}
     >
+      {/*
+        键盘与输入法的真正落点。浏览器只在可编辑元素上启动输入法合成，
+        画面本身是 div，所以把按键/合成事件全部接到这个 1px 透明输入框上
+        （不占位、不可见、不接受指针事件，完全不改变画面外观）。
+      */}
+      <input
+        ref={remoteStageInputRef}
+        className="stage-input-sink"
+        type="text"
+        aria-hidden="true"
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck={false}
+        tabIndex={-1}
+        onKeyDown={onRemoteStageKeyDown}
+        onKeyUp={onRemoteStageKeyUp}
+        onCompositionEnd={onRemoteStageCompositionEnd}
+        onInput={onRemoteStageInput}
+        onPaste={onRemoteStagePaste}
+        onBlur={onRemoteStageBlur}
+      />
       {hasRemoteVideo ? (
         <>
           <div className="remote-video-grid">

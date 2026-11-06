@@ -107,12 +107,13 @@ function readAutoConnectPref(): boolean {
   }
 }
 
-// 输入方式偏好：默认 native（只发物理键，由被控端输入法合成，能打中文）。
+// 输入方式偏好：默认 text（按字符上屏，大小写/符号精确，配合本机输入法还能打中文）。
+// native 仅作为「被控端不认 text_input」时的兜底，需手动切换。
 function readInputModePref(): RemoteInputMode {
   try {
-    return globalThis.localStorage?.getItem("uurc.inputMode") === "text" ? "text" : "native";
+    return globalThis.localStorage?.getItem("uurc.inputMode") === "native" ? "native" : "text";
   } catch {
-    return "native";
+    return "text";
   }
 }
 
@@ -196,12 +197,14 @@ export function useRemoteControlController() {
   const toastIdRef = useRef(0);
   const browserRemoteSession = useRef<BrowserRemoteSession | null>(null);
   const remoteStageRef = useRef<HTMLDivElement | null>(null);
+  const remoteStageInputRef = useRef<HTMLInputElement | null>(null);
   const remoteStageFrameRef = useRef<HTMLDivElement | null>(null);
   const autoConnectAttemptedDeviceRef = useRef<string>("");
   const controlChannelOpenedRef = useRef(false);
   const activePointerId = useRef<number | null>(null);
-  // 记录最近一次输入法上屏时间，用于压掉浏览器补发的重复 keydown。
+  // 记录最近一次输入法上屏的时间与文本，用于压掉浏览器随后补发的重复 keydown。
   const lastCompositionEndAt = useRef(0);
+  const lastCompositionText = useRef("");
   const navigate = useNavigate();
   const controlRouteMatch = useMatch("/devices/:deviceId/control");
   const routeSelectedDeviceId = controlRouteMatch?.params.deviceId ?? "";
@@ -768,7 +771,7 @@ export function useRemoteControlController() {
     }
     if (!inputControlActive && controlChannelState === "open") {
       setInputControlEnabled(true);
-      remoteStageRef.current?.focus();
+      focusStageInput();
       return;
     }
   }
@@ -847,7 +850,7 @@ export function useRemoteControlController() {
     try {
       sendRemoteShortcut(browserRemoteSession.current, shortcut);
       setBrowserRemoteState(browserRemoteSession.current.getState());
-      remoteStageRef.current?.focus();
+      focusStageInput();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
@@ -875,20 +878,21 @@ export function useRemoteControlController() {
     }
     if (controlChannelState !== "open") return;
     setInputControlEnabled(true);
-    remoteStageRef.current?.focus();
+    focusStageInput();
   }
 
   function handleInputModeChange(mode: RemoteInputMode) {
     setInputMode(mode);
     writeInputModePref(mode);
     // 切模式后把焦点留在画面上，键盘立即按新模式生效。
-    remoteStageRef.current?.focus();
+    focusStageInput();
   }
 
   function handleRemoteStagePointerDown(event: PointerEvent<HTMLDivElement>) {
     if (!inputControlActive || !browserRemoteSession.current) return;
     event.preventDefault();
-    event.currentTarget.focus();
+    // 焦点交给隐藏输入框（不是画面本身）：这样点击画面后能立刻打字，输入法也能正常启动。
+    focusStageInput();
     activePointerId.current = event.pointerId;
     if (typeof event.currentTarget.setPointerCapture === "function") {
       event.currentTarget.setPointerCapture(event.pointerId);
@@ -956,66 +960,128 @@ export function useRemoteControlController() {
     return roomJoinContext?.kind === "remote_assistance" ? roomJoinContext.targetPlatform : selectedDevice?.platform;
   }
 
+  // 键盘与输入法的落点是画面里的 1px 隐藏输入框（浏览器只给可编辑元素启动输入法）。
+  function focusStageInput(): void {
+    const sink = remoteStageInputRef.current;
+    if (!sink) {
+      remoteStageRef.current?.focus();
+      return;
+    }
+    sink.focus({ preventScroll: true });
+  }
+
+  // 输入框只用来接收按键/合成，不保留任何文本：每次处理完清空，避免累积。
+  function clearStageInputSink(): void {
+    const sink = remoteStageInputRef.current;
+    if (sink && sink.value !== "") sink.value = "";
+  }
+
+  function sendRemoteText(text: string): void {
+    const session = browserRemoteSession.current;
+    if (!session || !text) return;
+    try {
+      session.sendTypedText(text);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }
+
+  // 输入法上屏后，Chrome/Safari 常补发一个 Enter 或同字符的 keydown；吞掉它，
+  // 否则每输入一次中文就会多一个换行。
+  function isCompositionEcho(event: KeyboardEvent<HTMLInputElement>): boolean {
+    const at = lastCompositionEndAt.current;
+    if (!at || Date.now() - at > 150) return false;
+    lastCompositionEndAt.current = 0;
+    if (event.key === "Enter" || event.key === "Process" || event.key === "Unidentified") return true;
+    return event.key.length === 1 && lastCompositionText.current.endsWith(event.key);
+  }
+
   // 两种输入方式：
-  // native（默认）——只送物理键，由被控端自己的键盘布局/输入法合成。中文能打字的前提，
-  //   本机输入法可以保持英文状态，拼音在远端合成（RDP/VNC/Parsec 都是这个模型）。
-  // text——把字符整段上屏（text_input）。不依赖被控端输入法，但中文无从产生，
-  //   只作为 native 在某些被控端上不生效时的兜底。
-  function handleRemoteStageKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+  // text（默认）——可打印字符按“字符”上屏（text_input）：大小写、符号都由本机键盘/输入法决定，
+  //   被控端不需要理解键码，也不会被它自己的 CapsLock/布局改写；输入法合成结果整段上屏，
+  //   所以中文也能打。
+  // native——只送物理键，由被控端自己的键盘布局/输入法解释。某些被控端不认 text_input 时用。
+  function handleRemoteStageKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     const session = browserRemoteSession.current;
     if (!inputControlActive || !session) return;
 
-    if (inputMode === "text") {
-      // 本机输入法合成中的按键不发给远端，等 compositionend 整段上屏。
-      if (event.nativeEvent.isComposing) return;
-      // Ctrl/Cmd+V：直接读本机剪贴板整段粘贴
-      // （非可编辑元素的 paste 事件在部分浏览器里根本不会触发，这是"粘贴没反应"的主因）。
-      if ((event.ctrlKey || event.metaKey) && (event.key === "v" || event.key === "V")) {
-        event.preventDefault();
-        void pasteClipboardToRemote();
-        return;
-      }
-      // 可打印字符（字母/数字/符号/空格）走 text_input 整字符上屏。
-      if (!event.ctrlKey && !event.altKey && !event.metaKey && event.key.length === 1) {
-        // 部分浏览器在 compositionend 之后还会补一次 keydown，避免重复上屏。
-        if (Date.now() - lastCompositionEndAt.current < 120) return;
-        event.preventDefault();
-        try {
-          session.sendTypedText(event.key);
-        } catch (caught) {
-          setError(caught instanceof Error ? caught.message : String(caught));
-        }
-        return;
-      }
+    // 输入法合成中：按键属于拼音/候选过程，等 compositionend 整段上屏。
+    if (event.nativeEvent.isComposing) return;
+    if (isCompositionEcho(event)) {
+      event.preventDefault();
+      clearStageInputSink();
+      return;
     }
 
-    // native 模式：不按 isComposing 提前返回——本机输入法开着时 key 会是 "Process"，
-    // 但 event.code 仍是物理键位，正好交给被控端输入法去合成。
+    // Ctrl/Cmd+V：读本机剪贴板整段粘贴（画面这类非可编辑元素上 paste 事件并不可靠）。
+    if ((event.ctrlKey || event.metaKey) && (event.key === "v" || event.key === "V")) {
+      event.preventDefault();
+      clearStageInputSink();
+      void pasteClipboardToRemote();
+      return;
+    }
+
+    // text 模式：可打印字符走 text_input，大小写按本机键盘原样送达（小写就是小写）。
+    if (inputMode === "text" && !event.ctrlKey && !event.metaKey && !event.altKey && event.key.length === 1) {
+      event.preventDefault();
+      clearStageInputSink();
+      sendRemoteText(event.key);
+      return;
+    }
+
+    // 其余按键（回车/退格/方向键/F 键/组合键）发物理键，由被控端自己解释。
     const isHoldModifier = HOLD_MODIFIER_KEYS.has(event.key);
     if (isHoldModifier && event.repeat) return; // 修饰键已按住，忽略本机自动重复
     event.preventDefault();
+    clearStageInputSink();
+
+    // 文本模式不“按住”修饰键：Shift 的字符差异已由字符本身带上，
+    // 而一旦抬起时的 keyup 丢失，被控端就会一直按着 Shift —— 之后所有字母都会被转成大写。
+    // 组合键（Ctrl+C 等）改成把修饰键包在按键前后各发一次，不需要真实按住状态。
+    if (inputMode === "text" && isHoldModifier) return;
+    const comboModifiers = inputMode === "text" ? collectComboModifierCodes(event) : [];
+
     const value = toRemoteKeyValue(event);
+    // 键码未收录：与其发一个被控端看不懂的值，不如不发（避免误触发被控端按键）。
+    if (value === undefined) return;
     try {
+      for (const modifier of comboModifiers) {
+        session.sendKeyboardInput({ action: "keyboardPress", value: modifier });
+      }
       session.sendKeyboardInput({ action: "keyboardPress", value });
       if (!isHoldModifier) {
         session.sendKeyboardInput({ action: "keyboardRelease", value });
+      }
+      for (const modifier of [...comboModifiers].reverse()) {
+        session.sendKeyboardInput({ action: "keyboardRelease", value: modifier });
       }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
   }
 
-  // text 模式的兜底：浏览器偶发在画面元素上冒泡 compositionend 时，把上屏文本整段发走。
-  function handleRemoteStageCompositionEnd(event: CompositionEvent<HTMLDivElement>) {
+  // 文本模式下组合键需要的修饰键（Android KEYCODE_CTRL_LEFT / ALT_LEFT / META_LEFT）。
+  function collectComboModifierCodes(event: KeyboardEvent<HTMLInputElement>): number[] {
+    const codes: number[] = [];
+    if (event.ctrlKey) codes.push(113);
+    if (event.altKey) codes.push(57);
+    if (event.metaKey) codes.push(117);
+    return codes;
+  }
+
+  // 输入法上屏（中文/日文等）：整段作为一帧 text_input 送达，被控端直接插入这段字符。
+  function handleRemoteStageCompositionEnd(event: CompositionEvent<HTMLInputElement>) {
+    const data = event.data ?? "";
     lastCompositionEndAt.current = Date.now();
-    const session = browserRemoteSession.current;
-    const data = event.data;
-    if (inputMode !== "text" || !inputControlActive || !session || !data) return;
-    try {
-      session.sendTypedText(data);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-    }
+    lastCompositionText.current = data;
+    clearStageInputSink();
+    if (!inputControlActive || !data) return;
+    sendRemoteText(data);
+  }
+
+  // 输入框只承载按键事件，不承载文本：任何插入都立刻丢弃，避免字符在框里堆积。
+  function handleRemoteStageInput() {
+    clearStageInputSink();
   }
 
   // 读取本机剪贴板并整段粘贴到远端。剪贴板 API 需要安全上下文 + 用户手势（按键即手势）。
@@ -1039,14 +1105,17 @@ export function useRemoteControlController() {
     }
   }
 
-  function handleRemoteStageKeyUp(event: KeyboardEvent<HTMLDivElement>) {
+  function handleRemoteStageKeyUp(event: KeyboardEvent<HTMLInputElement>) {
     if (!inputControlActive || !browserRemoteSession.current) return;
-    if ((event.ctrlKey || event.metaKey) && (event.key === "v" || event.key === "V")) return;
+    // 文本模式下没有按住过修饰键（组合键是一次性包发），所以也不需要释放。
+    if (inputMode === "text") return;
     // 只有修饰键是“按住”的，需在抬起时释放;普通键已在 keydown 即时抬起。
     if (!HOLD_MODIFIER_KEYS.has(event.key)) return;
     event.preventDefault();
+    const value = toRemoteKeyValue(event);
+    if (value === undefined) return;
     try {
-      browserRemoteSession.current.sendKeyboardInput({ action: "keyboardRelease", value: toRemoteKeyValue(event) });
+      browserRemoteSession.current.sendKeyboardInput({ action: "keyboardRelease", value });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
@@ -1059,17 +1128,14 @@ export function useRemoteControlController() {
     browserRemoteSession.current?.releaseAllInputs();
   }
 
-  function handleRemoteStagePaste(event: ClipboardEvent<HTMLDivElement>) {
+  function handleRemoteStagePaste(event: ClipboardEvent<HTMLInputElement>) {
     // 右键菜单/系统菜单触发的粘贴走这里；键盘 Ctrl+V 已在 keydown 里处理并 preventDefault。
     if (!inputControlActive || !browserRemoteSession.current) return;
     const text = event.clipboardData?.getData("text") ?? "";
     if (!text) return;
     event.preventDefault();
-    try {
-      browserRemoteSession.current.sendTypedText(text);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-    }
+    clearStageInputSink();
+    sendRemoteText(text);
   }
 
   const loggedIn = Boolean(authStatus?.hasState);
@@ -1293,7 +1359,7 @@ export function useRemoteControlController() {
     // 连接成功（控制通道打开）后默认进入操作状态：自动启用输入控制并聚焦画面，无需再手动点一下。
     controlChannelOpenedRef.current = true;
     setInputControlEnabled(true);
-    remoteStageRef.current?.focus();
+    focusStageInput();
   }, [controlChannelState]);
 
   useEffect(() => {
@@ -1495,6 +1561,7 @@ export function useRemoteControlController() {
     remoteRecoveryLabel,
     remoteShortcutPlatform,
     remoteStageRef,
+    remoteStageInputRef,
     remoteStageFrameRef,
     isFullscreen,
     remoteStageViewMode,
@@ -1543,6 +1610,7 @@ export function useRemoteControlController() {
     onRemoteStageBlur: handleRemoteStageBlur,
     onRemoteStagePaste: handleRemoteStagePaste,
     onRemoteStageCompositionEnd: handleRemoteStageCompositionEnd,
+    onRemoteStageInput: handleRemoteStageInput,
     inputMode,
     onInputModeChange: handleInputModeChange,
     onRemoteStagePointerCancel: handleRemoteStagePointerCancel,

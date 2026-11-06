@@ -1,4 +1,12 @@
-import type { ClipboardEvent, CompositionEvent, KeyboardEvent, PointerEvent, RefObject, WheelEvent } from "react";
+import type {
+  ClipboardEvent,
+  CompositionEvent,
+  FormEvent,
+  KeyboardEvent,
+  PointerEvent,
+  RefObject,
+  WheelEvent,
+} from "react";
 
 import type {
   RemoteControlBootstrap,
@@ -71,6 +79,8 @@ export interface RemoteControlPageProps {
   remoteRecoveryLabel: string;
   remoteShortcutPlatform: string;
   remoteStageRef: RefObject<HTMLDivElement | null>;
+  // 隐藏输入框：浏览器只给可编辑元素启动输入法，键盘/输入法事件都落在这里。
+  remoteStageInputRef: RefObject<HTMLInputElement | null>;
   remoteStageFrameRef: RefObject<HTMLDivElement | null>;
   isFullscreen: boolean;
   remoteStageViewMode: RemoteStageViewMode;
@@ -114,13 +124,14 @@ export interface RemoteControlPageProps {
   onForceJoinChange: (forceJoin: boolean) => void;
   onNextAction: () => void;
   onReconnectRemote: () => void;
-  onRemoteStageKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void;
-  onRemoteStageKeyUp: (event: KeyboardEvent<HTMLDivElement>) => void;
+  onRemoteStageKeyDown: (event: KeyboardEvent<HTMLInputElement>) => void;
+  onRemoteStageKeyUp: (event: KeyboardEvent<HTMLInputElement>) => void;
   onRemoteStageBlur: () => void;
-  onRemoteStagePaste: (event: ClipboardEvent<HTMLDivElement>) => void;
-  onRemoteStageCompositionEnd: (event: CompositionEvent<HTMLDivElement>) => void;
-  // 输入方式：native = 只发物理键，由被控端自己的输入法合成（能打中文）；
-  // text = 把字符整段上屏（不依赖被控端输入法，但打不了中文）。
+  onRemoteStagePaste: (event: ClipboardEvent<HTMLInputElement>) => void;
+  onRemoteStageCompositionEnd: (event: CompositionEvent<HTMLInputElement>) => void;
+  onRemoteStageInput: (event: FormEvent<HTMLInputElement>) => void;
+  // 输入方式：text = 按字符上屏（大小写/符号精确，配合本机输入法可打中文，默认）；
+  // native = 只发物理键，由被控端自己的键盘布局/输入法解释（兜底）。
   inputMode: RemoteInputMode;
   onInputModeChange: (mode: RemoteInputMode) => void;
   onRemoteStagePointerCancel: (event: PointerEvent<HTMLDivElement>) => void;

@@ -735,6 +735,7 @@ describe("BrowserRemoteSession", () => {
       appControlId: "control-1",
       appDataBase64: "Cg==",
       streamerData: "{}",
+      targetPlatform: 2,
     });
 
     session.sendMouseClick({ absX: 320, absY: 240, button: "primary" });
@@ -988,6 +989,7 @@ describe("BrowserRemoteSession", () => {
       appControlId: "control-1",
       appDataBase64: "Cg==",
       streamerData: "{}",
+      targetPlatform: 2,
     });
 
     session.sendMouseMove({ absX: 120, absY: 80 });
@@ -1106,6 +1108,8 @@ describe("BrowserRemoteSession", () => {
       appControlId: "control-1",
       appDataBase64: "Cg==",
       streamerData: "{}",
+      // 平台 2 = 移动端：这条用例验证的是 App/SendToRom 的 protobuf 线路。
+      targetPlatform: 2,
     });
 
     session.sendKeyboardInput({ action: "keyboardPress", value: "A" });
@@ -1122,6 +1126,47 @@ describe("BrowserRemoteSession", () => {
         timestampMs: 3,
         inputMessage: buildStreamerKeyboardInputMessage({ action: "keyboardRelease", value: "A" }),
       }),
+    ]);
+  });
+
+  it("sends characters verbatim so lowercase stays lowercase on a Windows host", async () => {
+    const peer = new FakePeerConnection();
+    const session = new BrowserRemoteSession({
+      api: new FakeRemoteApi(),
+      createPeerConnection: () => peer,
+      now: () => 1000,
+    });
+    await session.start({
+      appControlId: "control-1",
+      appDataBase64: "Cg==",
+      streamerData: "{}",
+      targetPlatform: 1,
+    });
+
+    // 逐字符上屏：大小写由本机键盘决定，被控端不再按自己的布局/CapsLock 重新解释，
+    // 所以 a 与 A 是两个不同的报文，不会被统一成大写。
+    session.sendTypedText("a");
+    session.sendTypedText("A");
+    expect(peer.channels.get(STREAMER_DATA_CHANNEL_LABELS.control)?.sent).toEqual([
+      buildStreamerTextInputMessage("a"),
+      buildStreamerTextInputMessage("A"),
+    ]);
+  });
+
+  it("assumes Windows keycodes when the host platform is unknown", async () => {
+    const peer = new FakePeerConnection();
+    const session = new BrowserRemoteSession({
+      api: new FakeRemoteApi(),
+      createPeerConnection: () => peer,
+      now: () => 1000,
+    });
+    await session.start({ appControlId: "control-1", appDataBase64: "Cg==", streamerData: "{}" });
+
+    // 29 = Android KEYCODE_A -> Windows VK_A(65)，且走裸 JSON（不套 protobuf）。
+    // 之前这里会把裸 Android 键码发给 Windows，键码对不上，打字完全没反应。
+    session.sendKeyboardInput({ action: "keyboardPress", value: 29 });
+    expect(peer.channels.get(STREAMER_DATA_CHANNEL_LABELS.control)?.sent).toEqual([
+      buildStreamerWindowsKeyboardInputMessage({ action: "keyboardPress", value: 29 }),
     ]);
   });
 
@@ -1189,6 +1234,8 @@ describe("BrowserRemoteSession", () => {
       appControlId: "control-1",
       appDataBase64: "Cg==",
       streamerData: "{}",
+      // 平台 2 = 移动端：这条用例验证的是 App/SendToRom 的 protobuf 线路。
+      targetPlatform: 2,
     });
 
     session.sendKeyboardInput({ action: "keyboardPress", value: "F12" });
@@ -1217,6 +1264,8 @@ describe("BrowserRemoteSession", () => {
       appControlId: "control-1",
       appDataBase64: "Cg==",
       streamerData: "{}",
+      // 平台 2 = 移动端：这条用例验证的是 App/SendToRom 的 protobuf 线路。
+      targetPlatform: 2,
     });
 
     await session.applySignalEvents([
@@ -1326,6 +1375,7 @@ describe("BrowserRemoteSession", () => {
       appControlId: "control-1",
       appDataBase64: "Cg==",
       streamerData: "{}",
+      targetPlatform: 2,
     });
 
     const control = peer.channels.get(STREAMER_DATA_CHANNEL_LABELS.control);
@@ -1746,7 +1796,7 @@ describe("BrowserRemoteSession", () => {
       },
       now: () => 9000,
     });
-    await session.start({ appControlId: "control-1", appDataBase64: "Cg==", streamerData: "{}" });
+    await session.start({ appControlId: "control-1", appDataBase64: "Cg==", streamerData: "{}", targetPlatform: 2 });
 
     const control = peer.channels.get(STREAMER_DATA_CHANNEL_LABELS.control);
     session.sendMouseButton({ action: "mousePress", button: "secondary" });
