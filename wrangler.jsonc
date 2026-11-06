@@ -26,6 +26,11 @@
       {
         "name": "REMOTE_SIGNAL_SESSION",
         "class_name": "RemoteSignalSession"
+      },
+      {
+        // 分享链接（访客用口令加入）的信令转发实例，一个分享 ID 一个。
+        "name": "SHARE_SESSION",
+        "class_name": "ShareSession"
       }
     ]
   },
@@ -33,6 +38,10 @@
     {
       "tag": "v1",
       "new_sqlite_classes": ["RemoteSignalSession"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["ShareSession"]
     }
   ],
   "observability": {

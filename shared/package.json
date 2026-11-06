@@ -47,6 +47,10 @@
     "./types": {
       "types": "./dist/types.d.ts",
       "default": "./dist/types.js"
+    },
+    "./shareProtocol": {
+      "types": "./dist/shareProtocol.d.ts",
+      "default": "./dist/shareProtocol.js"
     }
   },
   "scripts": {

@@ -22,6 +22,7 @@ import type {
   BrowserRemoteVideoElementSample,
 } from "../remote/browserRemoteSession.js";
 import type { RemoteShortcut } from "../remote/remoteShortcuts.js";
+import type { ShareHostController } from "../share/useShareHost.js";
 import type {
   BusyAction,
   ConnectionRouteMode,
@@ -78,6 +79,7 @@ export interface RemoteControlPageProps {
   remoteBootstrap: RemoteControlBootstrap | null;
   remoteRecoveryLabel: string;
   remoteShortcutPlatform: string;
+  share: ShareHostController;
   remoteStageRef: RefObject<HTMLDivElement | null>;
   // 隐藏输入框：浏览器只给可编辑元素启动输入法，键盘/输入法事件都落在这里。
   remoteStageInputRef: RefObject<HTMLInputElement | null>;

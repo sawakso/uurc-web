@@ -1,9 +1,10 @@
 import type { ReactNode } from "react";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router";
+import { BrowserRouter, Navigate, Route, Routes, useMatch } from "react-router";
 
 import { DeviceListPage } from "./components/DeviceListPage.js";
 import { LoginPage } from "./components/LoginPage.js";
 import { RemoteControlPage } from "./components/RemoteControlPage.js";
+import { ShareGuestPage } from "./components/ShareGuestPage.js";
 import { Toast } from "./components/Toast.js";
 import { useRemoteControlController } from "./controllers/useRemoteControlController.js";
 import "./styles/index.css";
@@ -11,9 +12,18 @@ import "./styles/index.css";
 export default function App() {
   return (
     <BrowserRouter>
-      <AppRoutes />
+      <RootRoutes />
     </BrowserRouter>
   );
+}
+
+function RootRoutes() {
+  const shareMatch = useMatch("/share/:shareId");
+  // 访客页不加载主控制器：访客没有 UU 登录态，也不应该触发任何 /api/remote 请求。
+  if (shareMatch?.params.shareId) {
+    return <ShareGuestPage shareId={shareMatch.params.shareId} />;
+  }
+  return <AppRoutes />;
 }
 
 function AppRoutes() {

@@ -8,6 +8,7 @@ import { RemoteControlSettingsDrawer } from "./RemoteControlSettingsDrawer.js";
 import { RemoteControlStage } from "./RemoteControlStage.js";
 import { RemoteControlTopbar } from "./RemoteControlTopbar.js";
 import { RemoteControlWarnings } from "./RemoteControlWarnings.js";
+import { SharePanel } from "./SharePanel.js";
 
 export function RemoteControlPage(props: RemoteControlPageProps) {
   if (props.deviceNotFound) {
@@ -59,6 +60,7 @@ export function RemoteControlPage(props: RemoteControlPageProps) {
               {props.inputControlLabel}
             </div>
           ) : null}
+          <SharePanel share={props.share} />
         </div>
         <RemoteControlWarnings {...props} />
         <RemoteControlInsights {...props} />

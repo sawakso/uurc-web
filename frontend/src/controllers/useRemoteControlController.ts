@@ -93,6 +93,8 @@ import {
   toRemoteMousePosition,
 } from "../remote/remoteControlUiModel.js";
 import { useAutoLoadDevices } from "./useAutoLoadDevices.js";
+import { useShareHost } from "../share/useShareHost.js";
+import type { ShareInputEvent } from "@uurc/shared/shareProtocol";
 
 const REMOTE_ASSISTANCE_DEFAULT_TARGET_PLATFORM = 1;
 
@@ -253,6 +255,16 @@ export function useRemoteControlController() {
     () => resolvePrimaryRemoteVideoId(remoteVideoStreams, remoteVideoSamplesById, selectedRemoteVideoId),
     [remoteVideoSamplesById, remoteVideoStreams, selectedRemoteVideoId],
   );
+
+  // 分享：把当前这一路画面转给访客，并把访客的输入回放进这条控制通道。
+  const primaryRemoteStream = useMemo(
+    () => remoteVideoStreams.find((video) => video.id === primaryRemoteVideoId)?.stream ?? null,
+    [primaryRemoteVideoId, remoteVideoStreams],
+  );
+  const share = useShareHost({
+    getStream: () => primaryRemoteStream,
+    onInput: (event) => applyShareInput(event),
+  });
 
   useEffect(() => {
     void loadStatus();
@@ -960,6 +972,50 @@ export function useRemoteControlController() {
     return roomJoinContext?.kind === "remote_assistance" ? roomJoinContext.targetPlatform : selectedDevice?.platform;
   }
 
+  // 访客的输入：坐标归一化后按固定比例换算（协议只关心比例），
+  // 字符走 text_input，其余按键走物理键——与主控本机输入同一套出口。
+  function applyShareInput(event: ShareInputEvent) {
+    const session = browserRemoteSession.current;
+    if (!session || !inputControlActive) return;
+    try {
+      switch (event.kind) {
+        case "move":
+          session.sendMouseMove({
+            absX: Math.round(event.x * 1920),
+            absY: Math.round(event.y * 1080),
+            surfaceWidth: 1920,
+            surfaceHeight: 1080,
+          });
+          break;
+        case "button":
+          session.sendMouseButton({
+            action: event.down ? "mousePress" : "mouseRelease",
+            button: toRemoteMouseButton(event.button),
+          });
+          break;
+        case "wheel":
+          session.sendMouseScroll({ deltaX: event.dx, deltaY: event.dy });
+          break;
+        case "text":
+          session.sendTypedText(event.text);
+          break;
+        case "key":
+          session.sendKeyboardInput({ action: event.down ? "keyboardPress" : "keyboardRelease", value: event.code });
+          break;
+        default:
+          break;
+      }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }
+
+  // 画面源换了（重连/切画面）就重新协商，访客不用刷新页面。
+  useEffect(() => {
+    share.refreshStream();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在画面流本身变化时重新协商
+  }, [primaryRemoteStream]);
+
   // 键盘与输入法的落点是画面里的 1px 隐藏输入框（浏览器只给可编辑元素启动输入法）。
   function focusStageInput(): void {
     const sink = remoteStageInputRef.current;
@@ -1560,6 +1616,7 @@ export function useRemoteControlController() {
     remoteBootstrap,
     remoteRecoveryLabel,
     remoteShortcutPlatform,
+    share,
     remoteStageRef,
     remoteStageInputRef,
     remoteStageFrameRef,

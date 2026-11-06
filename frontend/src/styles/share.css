@@ -1,0 +1,227 @@
+.share-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  background: #08090b;
+  color: #f5f5f5;
+}
+
+.share-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.share-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #e8e8ea;
+}
+
+.share-status {
+  font-size: 12.5px;
+  color: #9a9aa2;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.share-status--error {
+  color: #f87171;
+}
+
+.share-status--connected {
+  color: #4ade80;
+}
+
+.share-gate {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+  color: #b7b7bf;
+}
+
+.share-gate h1 {
+  font-size: 20px;
+  margin: 0;
+  color: #f5f5f5;
+}
+
+.share-gate p {
+  margin: 0;
+  font-size: 13px;
+  max-width: 320px;
+}
+
+.share-gate form {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+  width: min(360px, 100%);
+}
+
+.share-password {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #2a2a30;
+  background: #121316;
+  color: #f5f5f5;
+  font-size: 14px;
+}
+
+.share-surface {
+  position: relative;
+  flex: 1;
+  min-height: 240px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+  border-radius: 12px;
+  overflow: hidden;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.share-video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+
+.share-key-sink {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  font-size: 16px;
+  pointer-events: none;
+}
+
+.share-waiting {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #a1a1aa;
+  font-size: 13px;
+  background: radial-gradient(circle at center, #14151a 0%, #000 70%);
+}
+
+.share-hint {
+  margin: 0;
+  font-size: 12px;
+  color: #7c7c85;
+  text-align: center;
+}
+
+.share-stage-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+@media (max-width: 560px) {
+  .share-shell {
+    padding: 10px;
+  }
+
+  .share-surface {
+    min-height: 180px;
+  }
+}
+
+/* ---- 主控侧的分享面板 ---- */
+
+.share-panel {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.stage-share-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #2a2a30;
+  border-radius: 999px;
+  padding: 5px 12px;
+  color: #d4d4d8;
+  background: #121316;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.stage-share-trigger:hover {
+  border-color: rgba(96, 165, 250, 0.55);
+  color: #ffffff;
+}
+
+.share-panel-body {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 30;
+  width: min(360px, calc(100vw - 40px));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #26262c;
+  border-radius: 14px;
+  background: #14151a;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+}
+
+.share-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #f4f4f5;
+}
+
+.share-link-input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #2a2a30;
+  border-radius: 8px;
+  background: #0e0f12;
+  color: #e4e4e7;
+  font-size: 12.5px;
+}
+
+.share-panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.share-panel-note {
+  margin: 0;
+  color: #8b8b93;
+  font-size: 12px;
+  line-height: 1.5;
+}

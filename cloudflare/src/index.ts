@@ -1,4 +1,5 @@
 import { RemoteSignalSession } from "./signalSession";
+import { ShareSession, hashPassword } from "./shareSession";
 import type { RemoteSignalSession as RemoteSignalSessionClass } from "./signalSession";
 import { createRuntimeProfile } from "@uurc/shared/runtimeProfile";
 import {
@@ -24,6 +25,7 @@ type JsonRecord = Record<string, unknown>;
 interface Env {
   ASSETS: Fetcher;
   REMOTE_SIGNAL_SESSION: DurableObjectNamespace<RemoteSignalSessionClass>;
+  SHARE_SESSION: DurableObjectNamespace;
   // 默认 fail-closed：拿不到 Cloudflare Access 身份就拒绝，避免误删 Access 策略后整站裸奔。
   // 本地 wrangler dev 需要 .dev.vars 里设置 REQUIRE_ACCESS=false。
   REQUIRE_ACCESS?: string;
@@ -31,7 +33,7 @@ interface Env {
 
 class BodyTooLargeError extends Error {}
 
-export { RemoteSignalSession };
+export { RemoteSignalSession, ShareSession };
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -49,6 +51,15 @@ export default {
     }
     if (url.pathname.startsWith("/api/remote/")) {
       return handleRemoteApi(request, env);
+    }
+    // 分享链接：访客没有 Cloudflare Access 身份，所以这条路径自身承担鉴权（口令）。
+    if (url.pathname === "/api/share" && request.method === "POST") {
+      const guard = assertAccessIdentity(request, env);
+      if (guard) return guard;
+      return handleShareCreate(request, env);
+    }
+    if (url.pathname.startsWith("/api/share/")) {
+      return handleShareApi(request, env);
     }
     return env.ASSETS.fetch(request);
   },
@@ -96,6 +107,72 @@ async function handleUuProxy(request: Request): Promise<Response> {
     }
     return json({ error: error instanceof Error ? error.message : String(error) }, { status: 400 });
   }
+}
+
+interface ShareCreateBody {
+  password?: unknown;
+}
+
+const SHARE_ID_PATTERN = /^[0-9a-f]{20}$/;
+
+async function handleShareCreate(request: Request, env: Env): Promise<Response> {
+  let body: ShareCreateBody;
+  try {
+    body = (await readJsonBody(request)) as ShareCreateBody;
+  } catch (error) {
+    if (error instanceof BodyTooLargeError) return json({ error: "request body too large" }, { status: 413 });
+    throw error;
+  }
+  const password = typeof body.password === "string" ? body.password : "";
+  if (password.length < 4 || password.length > 64) {
+    return json({ error: "口令长度需在 4-64 个字符之间" }, { status: 400 });
+  }
+
+  // 分享 ID 随机且不可猜：它只是定位 DO，真正的门是口令。
+  const shareId = [...crypto.getRandomValues(new Uint8Array(10))]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+  const session = env.SHARE_SESSION.getByName(shareId);
+  const response = await session.fetch(
+    new Request("https://share.internal/configure", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-uurc-share-action": "configure" },
+      body: JSON.stringify({ passwordHash: await hashPassword(password) }),
+    }),
+  );
+  if (!response.ok) return json({ error: "创建分享失败" }, { status: 500 });
+  return json({ shareId });
+}
+
+async function handleShareApi(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  const rest = url.pathname.slice("/api/share/".length);
+  const [shareId, sub] = rest.split("/");
+  if (!shareId || !SHARE_ID_PATTERN.test(shareId)) {
+    return json({ error: "分享链接无效" }, { status: 404 });
+  }
+  const session = env.SHARE_SESSION.getByName(shareId);
+
+  if (!sub && request.method === "GET") {
+    const info = await session.fetch(
+      new Request("https://share.internal/info", { headers: { "x-uurc-share-action": "info" } }),
+    );
+    return new Response(info.body, { status: info.status, headers: info.headers });
+  }
+
+  if (sub === "ws") {
+    const headers = new Headers(request.headers);
+    // 只有通过了 Cloudflare Access 的连接才能当主控；访客路径没有这个身份头。
+    // 这里用 set（不是 append），客户端自带的值会被覆盖。
+    if (request.headers.get("cf-access-authenticated-user-email")) {
+      headers.set("x-uurc-share-role", "host");
+    } else {
+      headers.delete("x-uurc-share-role");
+    }
+    return session.fetch(new Request(request.url, { headers }));
+  }
+
+  return json({ error: "Not found" }, { status: 404 });
 }
 
 async function handleRemoteApi(request: Request, env: Env): Promise<Response> {

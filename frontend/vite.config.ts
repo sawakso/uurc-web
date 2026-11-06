@@ -23,6 +23,7 @@ export default defineConfig({
       "@uurc/shared/remoteBootstrap": new URL("../shared/src/remoteBootstrap.ts", import.meta.url).pathname,
       "@uurc/shared/roomConfig": new URL("../shared/src/roomConfig.ts", import.meta.url).pathname,
       "@uurc/shared/types": new URL("../shared/src/types.ts", import.meta.url).pathname,
+      "@uurc/shared/shareProtocol": new URL("../shared/src/shareProtocol.ts", import.meta.url).pathname,
       "@uurc/shared": new URL("../shared/src/index.ts", import.meta.url).pathname,
     },
   },
