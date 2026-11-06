@@ -33,21 +33,39 @@ npm run deploy:cloudflare
 npm run dev:cloudflare
 ```
 
-## 必须配置：控制台登录口令
+## 控制台怎么登录：二选一
 
-`/api/remote/*` 与 `/api/proxy/uu` 现在由 Worker 自己守门（不再依赖 Cloudflare Access），
-所以**部署后必须设一个登录口令**，否则这些接口一律返回 503：
+Worker 只认两种主人身份，配了前者就不再要口令：
+
+**A. Cloudflare Access（推荐）**
+
+1. Zero Trust 里对 `uurc.sawakso.com` 保留一条 Allow 策略（你的邮箱）。
+2. 建两条 Bypass 应用放行访客路径（脚本走 API，避开控制台表单的已知报错）：
+
+   ```bash
+   CF_API_TOKEN=xxx CF_ACCOUNT_ID=xxx DOMAIN=uurc.sawakso.com \
+     node cloudflare/setup-access-bypass.mjs
+   ```
+
+3. 把应用页上的 AUD 标签填进 `wrangler.jsonc` 的 `ACCESS_AUD`，然后推送部署。
+
+Worker 会验 `Cf-Access-Jwt-Assertion` 的 RS256 签名（`ACCESS_TEAM_DOMAIN` 已在 `vars` 里），
+所以不需要 `OWNER_PASSPHRASE`。细节见 `cloudflare/SHARE.zh-CN.md`。
+
+**B. 自己的口令（没有 Access 时兜底）**
+
+`ACCESS_AUD` 留空时启用：`/api/remote/*` 与 `/api/proxy/uu` 比对口令并签发 HttpOnly 签名 Cookie，
+有效期 14 天。此时**必须**设：
 
 ```bash
 npx wrangler secret put OWNER_PASSPHRASE
 ```
 
-要求至少 8 位。也可以在 Cloudflare 控制台 → Workers → `uurc-web` → 设置 → 变量和机密里添加。
+要求至少 8 位；不设则这些接口一律 503（fail-closed，不会裸奔）。
+可选再设 `SESSION_SECRET` 做签名密钥（不设时用口令本身签名）。
 
-可选：再设一个 `SESSION_SECRET` 专门做签名密钥（不设时用口令本身签名，够用）。
-登录态是 HttpOnly 签名 Cookie，有效期 14 天，改了口令旧 Cookie 立即失效。
-
-分享链接（`/share/<id>`、`/api/share/*`）不需要这道口令，访客用自己的观看口令进入。
+分享链接（`/share/<id>`、`/api/share/*`）两种模式下都不过这道门，
+访客只面对你生成链接时设的观看口令。
 
 ## 说明
 

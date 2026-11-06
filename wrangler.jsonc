@@ -12,6 +12,13 @@
       "custom_domain": true
     }
   ],
+  // 主人身份来源：Cloudflare Access。Worker 会用 Access 公钥校验 JWT（见 cloudflare/src/accessAuth.ts），
+  // 所以控制台不需要第二个口令，分享路径则通过 Access 的 Bypass 应用完全跳过验证。
+  // ACCESS_AUD 在 Zero Trust → Applications → 该应用的「应用程序受众 (AUD) 标签」里复制。
+  "vars": {
+    "ACCESS_TEAM_DOMAIN": "zechuanwangyou.cloudflareaccess.com",
+    "ACCESS_AUD": ""
+  },
   "assets": {
     "directory": "./frontend/dist",
     "binding": "ASSETS",

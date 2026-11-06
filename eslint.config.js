@@ -38,8 +38,8 @@ export default tseslint.config(
     },
   },
   {
-    // Node / Worker 侧
-    files: ["backend/**/*.ts", "shared/**/*.ts", "cloudflare/**/*.ts"],
+    // Node / Worker 侧（含运维脚本）
+    files: ["backend/**/*.ts", "shared/**/*.ts", "cloudflare/**/*.ts", "cloudflare/**/*.mjs"],
     languageOptions: { globals: { ...globals.node, ...globals.browser } },
   },
   {

@@ -1,42 +1,45 @@
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
-import { KeyRound, LoaderCircle } from "lucide-react";
+import { KeyRound, LoaderCircle, RefreshCw } from "lucide-react";
 
-import { getOwnerSession, loginOwner } from "../api/client.js";
+import { getOwnerSession, loginOwner, type OwnerSession } from "../api/client.js";
 
-type GateState = "checking" | "locked" | "open" | "unconfigured";
+type GateState = "checking" | "locked" | "open" | "unconfigured" | "access-blocked";
 
 /**
  * 控制台入口闸门。
  *
  * 这一层只保护「主控台」本身：/share/* 走的是另一条路由，压根不会渲染到这里，
- * 所以访客拿链接打开时不会被要求输入主人的口令，也不会被 Cloudflare 登录页拦住。
+ * 所以访客拿链接打开时不会被要求输入主人的口令，也不会被 Cloudflare Access 拦住。
  *
- * 它挡住的攻击面是真实的：Worker 上的 /api/proxy/uu 能代替你访问 UU 接口，
- * /api/remote/* 能驱动远控会话，没有这层门等于把远控能力公开在公网上。
+ * 身份有两种来源，由服务端决定：
+ *   - access：Cloudflare Access 已经放行，服务端验过它签发的 JWT，直接进；
+ *   - passphrase：没上 Access 时，Worker 自己比对口令并签发 Cookie。
+ * 不会出现「Access 登录一次、再输一次口令」的双重门。
  */
 export function OwnerGate({ children }: { children: ReactNode }) {
   const [state, setState] = useState<GateState>("checking");
+  const [session, setSession] = useState<OwnerSession | null>(null);
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
-  const [guidance, setGuidance] = useState("");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     void getOwnerSession()
-      .then((session) => {
+      .then((next) => {
         if (cancelled) return;
-        if (session.authenticated) {
+        setSession(next);
+        if (next.authenticated) {
           setState("open");
           return;
         }
-        if (!session.configured) {
-          setGuidance(session.message);
+        if (!next.configured) {
           setState("unconfigured");
           return;
         }
-        setState("locked");
+        // Access 模式下没有「输口令」这条路：JWT 没通过就是没通过，只能重新走 Access 登录。
+        setState(next.mode === "access" ? "access-blocked" : "locked");
       })
       .catch((caught) => {
         if (cancelled) return;
@@ -74,6 +77,31 @@ export function OwnerGate({ children }: { children: ReactNode }) {
     );
   }
 
+  if (state === "access-blocked") {
+    return (
+      <main className="product-shell auth-product-shell">
+        <section className="login-layout">
+          <div className="form-section auth-card" role="alert">
+            <h2>Cloudflare Access 没有放行</h2>
+            <p className="section-help">
+              控制台现在由 Cloudflare Access 保护，这个请求没有带上有效的 Access 身份。
+              通常是登录态过期了，刷新一次会重新走邮箱验证码。
+            </p>
+            {session?.message ? <p className="section-help">{session.message}</p> : null}
+            <button type="button" className="primary-action-button" onClick={() => window.location.reload()}>
+              <RefreshCw size={15} />
+              重新加载并登录
+            </button>
+            <p className="section-help">
+              如果刷新后还是这一页，说明 Access 应用没有覆盖当前路径，或者 Worker 里的
+              <code> ACCESS_AUD </code>与该应用不匹配。
+            </p>
+          </div>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="product-shell auth-product-shell">
       <section className="login-layout">
@@ -92,7 +120,7 @@ export function OwnerGate({ children }: { children: ReactNode }) {
 
           {state === "unconfigured" ? (
             <section className="error-strip" role="alert">
-              <span>{guidance || "服务端还没有设置登录口令。"}</span>
+              <span>{session?.message || "服务端还没有配置任何登录方式。"}</span>
             </section>
           ) : (
             <>

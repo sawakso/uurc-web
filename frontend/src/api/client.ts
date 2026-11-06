@@ -156,9 +156,13 @@ export async function sendRemoteSignalSoac(input: RemoteSignalSoacRequest): Prom
 }
 
 export interface OwnerSession {
-  /** 服务端是否配置了登录口令；false 时说明部署方少加了 OWNER_PASSPHRASE 机密变量。 */
+  /** 主人身份来源：access = Cloudflare Access 验签通过；passphrase = Worker 自己的口令 Cookie。 */
+  mode: "access" | "passphrase";
+  /** 服务端是否已经能验证身份；false 时说明部署方两个都没配。 */
   configured: boolean;
   authenticated: boolean;
+  /** Access 模式下的登录邮箱，口令模式下为空。 */
+  email: string;
   /** 未配置时的具体指引，直接展示给部署者看。 */
   message: string;
 }

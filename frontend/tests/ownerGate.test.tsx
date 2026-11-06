@@ -8,14 +8,23 @@ function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 }
 
-function stubFetch(options: { authenticated: boolean; configured?: boolean; password?: string }) {
+function stubFetch(options: {
+  authenticated: boolean;
+  configured?: boolean;
+  password?: string;
+  mode?: "access" | "passphrase";
+  email?: string;
+  message?: string;
+}) {
   const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const path = String(input);
     if (path === "/api/auth/session") {
       return jsonResponse({
+        mode: options.mode ?? "passphrase",
         configured: options.configured ?? true,
         authenticated: options.authenticated,
-        message: options.configured === false ? "服务端还没设置登录口令。" : "",
+        email: options.email ?? "",
+        message: options.message ?? (options.configured === false ? "服务端还没设置登录口令。" : ""),
       });
     }
     if (path === "/api/auth/login") {
@@ -70,6 +79,33 @@ describe("OwnerGate", () => {
     await user.click(screen.getByRole("button", { name: /进入控制台/ }));
 
     await screen.findByText("我的设备");
+  });
+
+  it("enters straight away when Cloudflare Access already vouched for the visitor", async () => {
+    stubFetch({ authenticated: true, mode: "access", email: "owner@example.com" });
+    render(
+      <OwnerGate>
+        <p>我的设备</p>
+      </OwnerGate>,
+    );
+
+    await screen.findByText("我的设备");
+    // Access 模式下不该再出现「输口令」这一步，否则就是双重门。
+    expect(screen.queryByLabelText("访问口令")).not.toBeInTheDocument();
+  });
+
+  it("asks to re-run the Access login instead of a passphrase when the JWT is missing", async () => {
+    stubFetch({ authenticated: false, mode: "access", message: "这个请求没有通过 Cloudflare Access 校验。" });
+    render(
+      <OwnerGate>
+        <p>我的设备</p>
+      </OwnerGate>,
+    );
+
+    await screen.findByRole("heading", { name: "Cloudflare Access 没有放行" });
+    expect(screen.queryByText("我的设备")).not.toBeInTheDocument();
+    // Access 模式没有本地口令可输，给输入框只会误导。
+    expect(screen.queryByLabelText("访问口令")).not.toBeInTheDocument();
   });
 
   it("shows deployment guidance instead of a password box when no passphrase is configured", async () => {

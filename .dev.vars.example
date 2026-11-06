@@ -1,3 +1,9 @@
 # 本地 wrangler dev 用，禁止提交或上传。
-# 控制台登录口令（至少 8 位）。生产环境用机密变量设置，不要写进 wrangler.jsonc。
+#
+# 两种登录方式二选一：
+# A) Cloudflare Access（生产推荐）：本地拿不到 Access 注入的 JWT，这两行留空即走 B。
+# ACCESS_TEAM_DOMAIN=zechuanwangyou.cloudflareaccess.com
+# ACCESS_AUD=
+#
+# B) 自己的口令（未配置 ACCESS_AUD 时生效，至少 8 位）。
 OWNER_PASSPHRASE=local-dev-passphrase

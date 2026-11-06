@@ -27,28 +27,66 @@ UU 的房间只允许一个控制端，访客拿不到（也不应该拿到）ro
 
 控制口令留空时，行为退回旧版：拿到观看口令即可操作。
 
-## 入口鉴权：Worker 自己做，不需要 Cloudflare Access
+## 入口鉴权：控制台走 Access，分享路径绕过它
 
-早期版本用 Cloudflare Access 守整站，代价是分享链接也会被邮箱验证码挡住；
-而 Access 的「按路径放行」在 Worker 目标下做不出来（控制台会报
-`use_clientless_isolation_app_launcher_url can only be enabled for apps with private destinations`）。
-现在改成：
+目标分工很明确：**你自己**进控制台要过 Cloudflare Access（邮箱验证码），
+**访客**只面对分享口令，全程看不到 `cloudflareaccess.com`。
 
-| 路径 | 谁进 | 怎么验证 |
+| 路径 | 谁能进 | 怎么验证 |
 |---|---|---|
-| `/share/<id>`、`/api/share/<id>/ws` | 任何拿到链接的人 | 观看口令（+ 可选控制口令），由分享的 Durable Object 校验 |
-| 其它页面（设备列表、远控页） | 只有你自己 | `POST /api/auth/login` 比对 `OWNER_PASSPHRASE`，发 HttpOnly 签名 Cookie |
-| `/api/remote/*`、`/api/proxy/uu` | 只有你自己 | 同一个 Cookie；没有就 401 |
+| `/share/<id>`、`/api/share/<id>`、`/api/share/<id>/ws` | 任何拿到链接的人 | Access **Bypass**（不介入）+ 观看口令 / 控制口令 |
+| 设备列表、远控页 | 只有你自己 | Access 登录（Allow 策略） |
+| `/api/remote/*`、`/api/proxy/uu`、创建分享 | 只有你自己 | 同一个 Access 会话；Worker 校验 JWT |
 
-所以：
+为什么必须拆成两条应用：Worker 级别的 Access 策略会覆盖这个 Worker 的**所有**域名和路径，
+而控制台里给 Worker 目标加 Path 是做不到的。所以给 `share` 与 `api/share` 各建一条
+更具体的**主机名**应用，优先级「主机名应用 > Worker 应用」会把它们盖住。
 
-- **不需要再建任何 Access 应用。** 之前为路径放行建的那些可以直接删掉，留着的话
-  访客仍会被验证码页拦住——因为 Access 是在 Worker 之前执行的。
-- 部署时必须设口令：`npx wrangler secret put OWNER_PASSPHRASE`（至少 8 位），
-  否则控制台接口返回 503 并直接在页面上提示缺少配置。
-- 登录态有效期 14 天；改口令会让所有已登录的浏览器立刻失效。
-- 创建分享走 `/api/remote/share/create`，它在 Cookie 门内，陌生人有 `api/share` 也建不了分享。
-  主控身份靠创建时下发的一次性 `hostToken` 自证，不依赖任何请求头。
+### 一次性配置（三步）
+
+1. 建 API Token：Cloudflare 控制台 → My Profile → API Tokens → Create Token，
+   权限选 **Account → Access: Apps and Policies → Edit**，账号限定为你的账号。
+
+2. 建两条 Bypass 应用（脚本可重复执行，已存在的会跳过）：
+
+   ```bash
+   CF_API_TOKEN=xxx CF_ACCOUNT_ID=xxx DOMAIN=uurc.sawakso.com \
+     node cloudflare/setup-access-bypass.mjs
+   ```
+
+   脚本走 API 而不是控制台表单，因为表单保存时会报
+   `use_clientless_isolation_app_launcher_url can only be enabled for apps with private destinations`
+   （那个开关只服务私有目标）。
+
+3. 把输出里保护 `uurc.sawakso.com` 那条应用的 `aud` 填到 `wrangler.jsonc` 的 `ACCESS_AUD`，
+   然后推送部署。
+
+### Worker 端怎么认人
+
+校验的是 `Cf-Access-Jwt-Assertion` 的 RS256 签名（公钥取自
+`https://<团队域>/cdn-cgi/access/certs`，缓存 1 小时），再核对 `aud` / `iss` / `exp`。
+
+**不信任 `cf-access-authenticated-user-email` 请求头**：一旦 Access 应用被删、或某条路径没被覆盖，
+任何能直达 Worker 的人自己发一个同名请求头就能冒充主人。验签则不存在这个口子——
+签名不对就是没通过。
+
+两个变量都在 `wrangler.jsonc` 的 `vars` 里，不是机密：
+
+| 变量 | 值 |
+|---|---|
+| `ACCESS_TEAM_DOMAIN` | `zechuanwangyou.cloudflareaccess.com` |
+| `ACCESS_AUD` | 该应用的「应用程序受众 (AUD) 标签」，一串 64 位十六进制 |
+
+`ACCESS_AUD` 留空等于关闭 Access 模式，退回「口令 + 签名 Cookie」的兜底方式
+（那时需要 `npx wrangler secret put OWNER_PASSPHRASE`，至少 8 位）。两套门不会同时生效。
+
+### 出问题先看这一句
+
+| 现象 | 原因 |
+|---|---|
+| 控制台显示「Cloudflare Access 没有放行」 | `ACCESS_AUD` 与该应用不匹配，或 Access 应用没覆盖当前路径 |
+| 访客看到 `cloudflareaccess.com` 验证码页 | 两条 Bypass 应用有一条没生效（路径写错、或只建了一条） |
+| 接口 503 且提示没配置 | `ACCESS_AUD` 和 `OWNER_PASSPHRASE` 都没配 |
 
 ## 访客黑屏怎么排查
 

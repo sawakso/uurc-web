@@ -15,6 +15,7 @@ import {
   parseSignalGatewayStartRequest,
   parseSignalSoacRequest,
 } from "@uurc/shared/signalGatewayProtocol";
+import { accessAuthEnabled, verifyAccessJwt } from "./accessAuth";
 import {
   assertLoginAllowed,
   clearLoginFailures,
@@ -38,8 +39,12 @@ interface Env {
   ASSETS: Fetcher;
   REMOTE_SIGNAL_SESSION: DurableObjectNamespace<RemoteSignalSessionClass>;
   SHARE_SESSION: DurableObjectNamespace;
-  // 主人登录口令与签名密钥，都由 Worker 自己校验（不再依赖 Cloudflare Access）。
-  // 未配置时 /api/remote/* 与 /api/proxy/uu 一律 403，属于 fail-closed。
+  // 两种主人身份来源，二选一：
+  //   1) ACCESS_TEAM_DOMAIN + ACCESS_AUD：校验 Cloudflare Access 下发的 JWT（推荐，控制台用邮箱验证码登录一次即可）；
+  //   2) OWNER_PASSPHRASE：Worker 自己比对口令并签发 Cookie（没上 Access 时的兜底）。
+  // 两个都没配时 /api/remote/* 与 /api/proxy/uu 一律 503，属于 fail-closed。
+  ACCESS_TEAM_DOMAIN?: string;
+  ACCESS_AUD?: string;
   OWNER_PASSPHRASE?: string;
   SESSION_SECRET?: string;
 }
@@ -264,26 +269,75 @@ async function handleRemoteApi(request: Request, env: Env): Promise<Response> {
 // 单主人部署，信号会话固定落在这个 DO 上。
 const OWNER_SESSION_NAME = "owner";
 
-// 只拒绝、不猜：服务端没配口令时明确 503，配了口令但 Cookie 无效时 401。
-// 前端据此区分「去登录」和「去改配置」，不会卡在无解的登录页上。
-async function requireOwner(request: Request, env: Env): Promise<Response | null> {
-  if (!ownerAuthConfigured(env)) {
-    return json({ error: ownerAuthMisconfiguredReason(env), code: "owner_auth_unconfigured" }, { status: 503 });
+type OwnerGateMode = "access" | "passphrase";
+
+interface OwnerStatus {
+  mode: OwnerGateMode;
+  configured: boolean;
+  authenticated: boolean;
+  email: string;
+  message: string;
+}
+
+// 主人身份的唯一入口：要么 Cloudflare Access 的 JWT 验签通过，要么持有效的口令 Cookie。
+async function resolveOwnerStatus(request: Request, env: Env): Promise<OwnerStatus> {
+  if (accessAuthEnabled(env)) {
+    const identity = await verifyAccessJwt(request, env);
+    return {
+      mode: "access",
+      configured: true,
+      authenticated: Boolean(identity),
+      email: identity?.email ?? "",
+      message: identity ? "" : "这个请求没有通过 Cloudflare Access 校验。",
+    };
   }
-  if (await hasValidOwnerSession(request, env)) return null;
+
+  const configured = ownerAuthConfigured(env);
+  return {
+    mode: "passphrase",
+    configured,
+    authenticated: configured && (await hasValidOwnerSession(request, env)),
+    email: "",
+    message: configured ? "" : ownerAuthMisconfiguredReason(env),
+  };
+}
+
+// 只拒绝、不猜：没配置任何身份来源时明确 503，配了但不通过时 401。
+// 前端据此区分「去登录」「去改配置」和「Access 没生效」，不会卡在无解的页面上。
+async function requireOwner(request: Request, env: Env): Promise<Response | null> {
+  const status = await resolveOwnerStatus(request, env);
+  if (!status.configured) {
+    return json({ error: status.message, code: "owner_auth_unconfigured" }, { status: 503 });
+  }
+  if (status.authenticated) return null;
+  if (status.mode === "access") {
+    return json(
+      {
+        error: "请求没有经过 Cloudflare Access。请刷新页面重新登录；若反复出现，检查 Access 应用是否覆盖了这个路径（Bypass 只应给 /share 与 /api/share）。",
+        code: "access_required",
+      },
+      { status: 401 },
+    );
+  }
   return json({ error: "需要先登录控制台", code: "owner_auth_required" }, { status: 401 });
 }
 
 async function handleAuthSession(request: Request, env: Env): Promise<Response> {
-  const configured = ownerAuthConfigured(env);
+  const status = await resolveOwnerStatus(request, env);
   return json({
-    configured,
-    authenticated: configured && (await hasValidOwnerSession(request, env)),
-    message: configured ? "" : ownerAuthMisconfiguredReason(env),
+    mode: status.mode,
+    configured: status.configured,
+    authenticated: status.authenticated,
+    email: status.email,
+    message: status.message,
   });
 }
 
 async function handleAuthLogin(request: Request, env: Env): Promise<Response> {
+  // 已经交给 Access 了，就别再让人输第二个口令。
+  if (accessAuthEnabled(env)) {
+    return json({ error: "当前使用 Cloudflare Access 登录，不需要口令。", code: "access_mode" }, { status: 400 });
+  }
   if (!ownerAuthConfigured(env)) {
     return json({ error: ownerAuthMisconfiguredReason(env), code: "owner_auth_unconfigured" }, { status: 503 });
   }
