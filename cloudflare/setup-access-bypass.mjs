@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// 用 API 建「分享路径绕过 Access」的两条应用，绕开控制台表单的 known bug
+// 用 API 建「分享路径绕过 Access」的三条应用，绕开控制台表单的 known bug
 // （新建公网主机名应用时保存会报 use_clientless_isolation_app_launcher_url ...）。
 //
 // 用法（Git Bash / macOS / Linux 都一样）：
@@ -55,6 +55,10 @@ async function api(path, init = {}) {
 const targets = [
   { name: "uurc-share-page", path: "share" },
   { name: "uurc-share-api", path: "api/share" },
+  // 分享页的 HTML 过了 Access，但它引用的 /assets/*.js|css 不在 /share 下面。
+  // 少了这条，访客看到的是空白页（脚本被 302 到登录页，拿不到 MIME 正确的 JS）。
+  // 前端产物本身就是公开代码，放行它不泄露任何数据，接口仍然各自有门。
+  { name: "uurc-static-assets", path: "assets" },
 ];
 
 // 先验证令牌本身，避免后面报一堆看不懂的 403。

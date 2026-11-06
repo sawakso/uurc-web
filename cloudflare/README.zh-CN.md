@@ -50,10 +50,13 @@ npm run dev:cloudflare
 ### 方式 2：保留 Access 邮箱验证（后台要建两条放行应用）
 
 1. Zero Trust 里对 `uurc.sawakso.com` 保留一条 **Allow** 策略（只放行你自己的邮箱）。
-2. 给访客路径建两条 **Bypass** 应用：`uurc.sawakso.com/share` 与 `uurc.sawakso.com/api/share`，
-   策略 `Bypass` + `Everyone`，且**不要**勾选 App Launcher。
+2. 给访客路径建三条 **Bypass** 应用：`uurc.sawakso.com/share`、`uurc.sawakso.com/api/share`、
+   `uurc.sawakso.com/assets`，策略 `Bypass` + `Everyone`，且**不要**勾选 App Launcher。
    Worker 级别应用会覆盖整个 Worker 的所有路径，控制台又没法给它加 Path，
-   所以只能靠「主机名应用优先于 Worker 应用」把这两条路径盖掉。
+   所以只能靠「主机名应用优先于 Worker 应用」把这几条路径盖掉。
+   第三条不能省：分享页的 HTML 过了 Access，但它引用的 `/assets/*.js`、`/assets/*.css` 不在
+   `/share` 下面，少了这条访客只会看到白屏（脚本被 302 到登录页，拿不到正确的 MIME）。
+   前端产物本来就是公开代码，放行它不泄露数据。
    > 控制台新建公网主机名应用时可能报
    > `use_clientless_isolation_app_launcher_url can only be enabled for apps with private destinations`
    > （表单默认值 bug）。要么先把目标建成私有网络应用、保存后再改成公网主机名；

@@ -35,12 +35,17 @@ UU 的房间只允许一个控制端，访客拿不到（也不应该拿到）ro
 | 路径                                                   | 谁能进           | 怎么验证                                         |
 | ------------------------------------------------------ | ---------------- | ------------------------------------------------ |
 | `/share/<id>`、`/api/share/<id>`、`/api/share/<id>/ws` | 任何拿到链接的人 | Access **Bypass**（不介入）+ 观看口令 / 控制口令 |
+| `/assets/*`（前端 JS/CSS）                             | 任何人           | Access **Bypass**，否则分享页白屏                |
 | 设备列表、远控页                                       | 只有你自己       | Access 登录（Allow 策略）                        |
 | `/api/remote/*`、`/api/proxy/uu`、创建分享             | 只有你自己       | 同一个 Access 会话；Worker 校验 JWT              |
 
-为什么必须拆成两条应用：Worker 级别的 Access 策略会覆盖这个 Worker 的**所有**域名和路径，
-而控制台里给 Worker 目标加 Path 是做不到的。所以给 `share` 与 `api/share` 各建一条
+为什么必须拆成三条应用：Worker 级别的 Access 策略会覆盖这个 Worker 的**所有**域名和路径，
+而控制台里给 Worker 目标加 Path 是做不到的。所以给 `share`、`api/share`、`assets` 各建一条
 更具体的**主机名**应用，优先级「主机名应用 > Worker 应用」会把它们盖住。
+
+`assets` 这条容易被漏掉：`/share/<id>` 只返回 index.html，真正的 React 代码在 `/assets/*.js`，
+它不在 `/share` 路径下，会被整站应用拦成 302 登录页——分享页就只剩白屏。
+前端产物是公开代码，放行它不泄露数据，接口仍各自有门。
 
 ### 一次性配置（三步）
 
@@ -51,7 +56,7 @@ UU 的房间只允许一个控制端，访客拿不到（也不应该拿到）ro
    - Zone Resources：留空（不需要）
    - TTL：留默认即可，配完可删
 
-2. 建两条 Bypass 应用（脚本可重复执行，已存在的会跳过）：
+2. 建三条 Bypass 应用（脚本可重复执行，已存在的会跳过）：
 
    ```bash
    CF_API_TOKEN=xxx node cloudflare/setup-access-bypass.mjs
