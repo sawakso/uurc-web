@@ -34,6 +34,8 @@ export type ShareServerMessage =
 
 export type ShareClientMessage =
   | { type: "auth"; role: ShareRole; password?: string; hostToken?: string }
+  // 访客单独换取"可以操作"的权限：观看只需要分享口令，动手还要控制口令。
+  | { type: "control-auth"; password: string }
   | { type: "signal"; to: string; payload: ShareSignalPayload }
   | { type: "input"; event: ShareInputEvent }
   | { type: "control"; enabled: boolean };
@@ -58,6 +60,11 @@ export function parseShareClientMessage(raw: string): ShareClientMessage | null 
       const password = typeof value.password === "string" ? value.password : undefined;
       const hostToken = typeof value.hostToken === "string" ? value.hostToken : undefined;
       return { type: "auth", role, password, hostToken };
+    }
+    case "control-auth": {
+      if (typeof value.password !== "string" || value.password.length === 0) return null;
+      if (value.password.length > SHARE_MAX_PASSWORD_LENGTH) return null;
+      return { type: "control-auth", password: value.password };
     }
     case "signal": {
       const payload = parseShareSignalPayload(value.payload);

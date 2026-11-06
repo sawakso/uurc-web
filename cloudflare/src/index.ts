@@ -115,6 +115,7 @@ async function handleUuProxy(request: Request): Promise<Response> {
 
 interface ShareCreateBody {
   password?: unknown;
+  controlPassword?: unknown;
 }
 
 const SHARE_ID_PATTERN = /^[0-9a-f]{20}$/;
@@ -129,7 +130,12 @@ async function handleShareCreate(request: Request, env: Env): Promise<Response> 
   }
   const password = typeof body.password === "string" ? body.password : "";
   if (password.length < 4 || password.length > 64) {
-    return json({ error: "口令长度需在 4-64 个字符之间" }, { status: 400 });
+    return json({ error: "观看口令长度需在 4-64 个字符之间" }, { status: 400 });
+  }
+  // 控制口令：观看不需要它，动手才需要。留空表示"谁拿到观看口令谁就能操作"。
+  const controlPassword = typeof body.controlPassword === "string" ? body.controlPassword.trim() : "";
+  if (controlPassword && (controlPassword.length < 4 || controlPassword.length > 64)) {
+    return json({ error: "控制口令长度需在 4-64 个字符之间" }, { status: 400 });
   }
 
   // 分享 ID 随机且不可猜：它只是定位 DO，真正的门是口令。
@@ -148,6 +154,7 @@ async function handleShareCreate(request: Request, env: Env): Promise<Response> 
       body: JSON.stringify({
         passwordHash: await hashPassword(password),
         hostTokenHash: await hashPassword(hostToken),
+        controlPasswordHash: controlPassword ? await hashPassword(controlPassword) : "",
       }),
     }),
   );

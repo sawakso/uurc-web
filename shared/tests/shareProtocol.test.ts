@@ -22,6 +22,15 @@ describe("share link wire protocol", () => {
     ).toEqual({ type: "signal", to: "g-1", payload: { kind: "offer", sdp: "v=0" } });
   });
 
+  it("accepts a control password request and rejects empty/oversized ones", () => {
+    expect(parseShareClientMessage(JSON.stringify({ type: "control-auth", password: "9999" }))).toEqual({
+      type: "control-auth",
+      password: "9999",
+    });
+    expect(parseShareClientMessage(JSON.stringify({ type: "control-auth", password: "" }))).toBeNull();
+    expect(parseShareClientMessage(JSON.stringify({ type: "control-auth", password: "x".repeat(65) }))).toBeNull();
+  });
+
   it("clamps pointer coordinates into the surface", () => {
     expect(parseShareInputEvent({ kind: "move", x: 1.7, y: -0.2 })).toEqual({ kind: "move", x: 1, y: 0 });
     expect(parseShareInputEvent({ kind: "move", x: Number.NaN, y: 0.5 })).toBeNull();

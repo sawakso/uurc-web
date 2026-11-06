@@ -1,7 +1,9 @@
 # 分享链接（访客观看 / 操作）
 
-主控页面上的「分享给他人」会生成一条链接和一个口令。对方打开链接、输入口令，
-就能看到你当前这一路画面，并可以用鼠标键盘操作被控电脑。
+主控页面上的「分享给他人」会生成**一条链接和两个口令**：
+
+- **观看口令**：只能看画面，动不了被控电脑。
+- **控制口令**：输入后才解锁鼠标键盘，才能真正操作。
 
 ```
 访客浏览器  ──WebRTC(画面/输入)──▶  你的主控浏览器  ──已有控制通道──▶  被控电脑
@@ -15,22 +17,60 @@ UU 的房间只允许一个控制端，访客拿不到（也不应该拿到）ro
 所以访客的画面由你的浏览器转发，输入由你的浏览器回放进已有的控制通道。
 代价是：**主控页面必须保持打开**，关掉即断流；访客画质受你的上传带宽限制。
 
+## 操作权限是怎么卡住的
+
+1. 只拿观看口令的访客，服务端在下发 `ready` 时就把 `controlEnabled` 置为 `false`；
+2. 访客要动手，必须再发一条 `control-auth`（控制口令）；
+3. **Durable Object 侧兜底**：没有换到权限的访客，`input` 消息直接被丢弃，
+   前端就算被改过也动不了被控电脑；
+4. 控制口令错误只回一条提示，不踢人（还能继续看），并计入防爆破计数。
+
+控制口令留空时，行为退回旧版：拿到观看口令即可操作。
+
 ## 部署后必须做的 Access 配置（否则访客会被 Cloudflare 登录页挡住）
 
-分享用的是两条**不带 Access 身份**的路径，需要单独放行：
+访客不该看到 Cloudflare 的邮箱验证码页。分享用的是两条**没有 Access 身份**的路径，
+需要在 Zero Trust 里用 Bypass 应用单独放行：
 
-| 路径 | 用途 | Access 应用动作 |
+| Path | 用途 | 策略 |
 |---|---|---|
-| `share` | 访客页面 `/share/<id>` | Bypass |
-| `api/share` | 访客的 WebSocket 信令 `/api/share/<id>/ws` | Bypass |
+| `share` | 访客页面 `/share/<id>` | Action = **Bypass**，Include = `Everyone` |
+| `api/share` | 访客 WebSocket `/api/share/<id>/ws` | Action = **Bypass**，Include = `Everyone` |
 
-操作：Zero Trust → Access → Applications → Add an application → Self-hosted，
-域名都填 `uurc.sawakso.com`，Path 分别填 `share` 和 `api/share`，
-策略一律 `Action = Bypass`，Include = `Everyone`。
+步骤：Zero Trust → Access controls → Applications → **Add an application** →
+**Self-hosted**；Domain 都填 `uurc.sawakso.com`，Path 分别填 `share` 与 `api/share`；
+策略页 Action 选 **Bypass**、Include 选 **Everyone**；Authentication 页不选 IdP，直接保存。
 
-> 创建分享仍然走 `/api/remote/share/create`（Access 保护的老前缀），
+要点：
+
+- 必须建**两个**应用（页面和 API 分开），只放行页面的结果是「页面能开、画面连不上」；
+- Path 不要带前导斜杠，也不要写 `<id>`；
+- Cloudflare 按「更具体的路径优先」匹配，所以更具体的 Bypass 会覆盖整站的登录策略；
+- 验证：无痕窗口打开 `https://uurc.sawakso.com/share/<id>`，
+  应该直接看到「输入观看口令」，而不是 `cloudflareaccess.com` 的验证码页。
+
+> 创建分享仍然走 `/api/remote/share/create`（Access 保护的前缀），
 > 所以即使 `api/share` 被放行，陌生人也建不了分享。
 > 主控身份靠创建时下发的一次性 `hostToken` 自证，不依赖任何请求头。
+
+## 访客黑屏怎么排查
+
+访客页会把实时状态写在画面上，按它显示的那一句对号入座：
+
+| 画面上显示 | 含义 | 怎么办 |
+|---|---|---|
+| 连线状态：`connecting` / `new` 停留很久 | 信令通了但 P2P 没连上 | 换网络重试；对称 NAT 需要 TURN |
+| 连线已建立，但主控端没有送来视频轨 | 主控端没有画面可转发 | 主控先连上被控设备、画面出来后重新生成链接 |
+| 已收到视频轨（WxH），但还没有解码出画面 | 轨道在但没数据 | 看「路径」：`relay→relay` 说明走了中继且不通 |
+| `1920×1080 · 已解码 N 帧 · 路径 host→host` | 正常在播 | — |
+
+主控端面板也会提示「当前没有画面可转发」，避免在没画面时分享出去。
+
+已知会黑屏的两种情况：
+
+- 主控端**先分享、后连接设备**：分享那一刻没有轨道可发。现在的做法是画面到达时补发协商，
+  但最稳的仍是先出画面再分享。
+- 主控端**重连/切画面**：旧轨道会停帧，现在会把失效的 sender 移除后重新协商。
 
 ## 安全边界
 
@@ -38,7 +78,7 @@ UU 的房间只允许一个控制端，访客拿不到（也不应该拿到）ro
 - 每次连接最多 4 位访客；10 分钟内错 20 次口令会临时锁定。
 - SDP / ICE / 输入事件只做转发，不持久化。
 - 分享 ID 为 20 位随机十六进制，猜不到；真正的门是口令。
-- 重启分享（重新生成）会让旧链接与旧口令立即失效。
+- 重启分享（重新生成）会让旧链接、旧口令、旧控制权限立即失效。
 
 ## 已知限制
 

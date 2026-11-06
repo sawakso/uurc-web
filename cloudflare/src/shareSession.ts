@@ -15,6 +15,8 @@ import {
 interface ShareSocketState {
   role: "host" | "guest";
   guestId: string;
+  /** 访客是否已经用控制口令换到了"可以操作"的权限；只观看时为 false。 */
+  canControl: boolean;
 }
 
 const AUTH_TIMEOUT_MS = 10_000;
@@ -27,6 +29,10 @@ export class ShareSession implements DurableObject {
   private readonly guests = new Map<string, WebSocket>();
   private failedAttempts = 0;
   private failedSince = 0;
+  /** 主控可以在面板上整体关掉操作（例如临时只想让人看）。 */
+  private controlAllowedByHost = true;
+  /** 哪些访客已经用控制口令换到了操作权限（用于广播时逐个区分，而不是一起放开）。 */
+  private readonly controlGrants = new Map<string, boolean>();
 
   constructor(ctx: DurableObjectState) {
     this.ctx = ctx;
@@ -48,21 +54,32 @@ export class ShareSession implements DurableObject {
   }
 
   private async handleConfigure(request: Request): Promise<Response> {
-    const body = (await request.json().catch(() => null)) as { passwordHash?: unknown; hostTokenHash?: unknown } | null;
+    const body = (await request.json().catch(() => null)) as {
+      passwordHash?: unknown;
+      hostTokenHash?: unknown;
+      controlPasswordHash?: unknown;
+    } | null;
     const passwordHash = typeof body?.passwordHash === "string" ? body.passwordHash : "";
     const hostTokenHash = typeof body?.hostTokenHash === "string" ? body.hostTokenHash : "";
+    // 控制口令可选：没设置时访客通过观看口令即可操作（老链接仍按老行为工作）。
+    const controlPasswordHash = typeof body?.controlPasswordHash === "string" ? body.controlPasswordHash : "";
     if (!/^[0-9a-f]{64}$/.test(passwordHash) || !/^[0-9a-f]{64}$/.test(hostTokenHash)) {
       return json({ error: "invalid credentials" }, 400);
+    }
+    if (controlPasswordHash && !/^[0-9a-f]{64}$/.test(controlPasswordHash)) {
+      return json({ error: "invalid control password hash" }, 400);
     }
     await this.ctx.storage.put("passwordHash", passwordHash);
     // 主控令牌只在创建时下发一次：谁拿着它谁就是主控，与 Access 头无关。
     await this.ctx.storage.put("hostTokenHash", hostTokenHash);
+    await this.ctx.storage.put("controlPasswordHash", controlPasswordHash);
     await this.ctx.storage.put("createdAt", Date.now());
     // 已有会话全部断掉：改口令等于让旧链接立即失效。
     this.host?.close(4000, "reconfigured");
     for (const guest of this.guests.values()) guest.close(4000, "reconfigured");
     this.host = null;
     this.guests.clear();
+    this.controlGrants.clear();
     return json({ ok: true });
   }
 
@@ -125,14 +142,17 @@ export class ShareSession implements DurableObject {
         return null;
       }
       if (message.type === "control") {
-        for (const guest of this.guests.values()) {
-          send(guest, { type: "control", enabled: message.enabled });
-        }
+        this.controlAllowedByHost = message.enabled;
+        this.broadcastControl();
       }
       return null;
     }
 
     // 访客 -> 主控
+    if (message.type === "control-auth") {
+      await this.grantControl(socket, state, message.password);
+      return null;
+    }
     if (message.type === "signal") {
       if (this.host) {
         send(this.host, { type: "signal", from: state.guestId, payload: message.payload } satisfies ShareServerMessage);
@@ -140,11 +160,46 @@ export class ShareSession implements DurableObject {
       return null;
     }
     if (message.type === "input") {
-      if (this.host) {
+      // 服务端兜底：没换到操作权限的访客，输入一律丢弃，不依赖前端自觉。
+      if (state.canControl && this.controlAllowedByHost && this.host) {
         send(this.host, { type: "input", from: state.guestId, event: message.event });
       }
     }
     return null;
+  }
+
+  /** 访客用控制口令换取操作权限；失败不踢人，他还能继续看。 */
+  private async grantControl(socket: WebSocket, state: ShareSocketState, password: string): Promise<void> {
+    const controlPasswordHash = await this.ctx.storage.get<string>("controlPasswordHash");
+    if (!controlPasswordHash) {
+      state.canControl = true;
+      this.controlGrants.set(state.guestId, true);
+      send(socket, { type: "control", enabled: this.controlAllowedByHost });
+      return;
+    }
+    if (this.tooManyFailures()) {
+      send(socket, { type: "error", message: "控制口令错误次数过多，请稍后再试" });
+      return;
+    }
+    if ((await hashPassword(password)) !== controlPasswordHash) {
+      this.recordFailure();
+      send(socket, { type: "error", message: "控制口令不正确，仍然只能观看" });
+      return;
+    }
+    state.canControl = true;
+    this.controlGrants.set(state.guestId, true);
+    send(socket, { type: "control", enabled: this.controlAllowedByHost });
+  }
+
+  private broadcastControl(): void {
+    for (const [guestId, guest] of this.guests) {
+      // 逐个按各自是否拿到控制权来决定，避免把没换权限的访客一起放开。
+      send(guest, { type: "control", enabled: this.controlAllowedByHost && this.guestCanControl(guestId) });
+    }
+  }
+
+  private guestCanControl(guestId: string): boolean {
+    return this.controlGrants.get(guestId) ?? false;
   }
 
   private async authenticate(
@@ -192,19 +247,29 @@ export class ShareSession implements DurableObject {
     if (role === "host") {
       this.host?.close(4000, "replaced");
       this.host = socket;
-      send(socket, { type: "ready", role, guestId: "host", controlEnabled: true });
+      send(socket, { type: "ready", role, guestId: "host", controlEnabled: this.controlAllowedByHost });
       // 主控晚到：把它已经错过的访客补一遍，让主控立即发起 offer。
       for (const guestId of this.guests.keys()) {
         send(socket, { type: "guest-joined", guestId });
       }
-      return { role, guestId: "host" };
+      return { role, guestId: "host", canControl: true };
     }
 
     const guestId = `g-${crypto.randomUUID().slice(0, 8)}`;
     this.guests.set(guestId, socket);
-    send(socket, { type: "ready", role, guestId, controlEnabled: Boolean(this.host) });
+    // 观看口令只换来"看"：要动手还得再输控制口令（没设控制口令的老分享除外）。
+    const controlPasswordHash = await this.ctx.storage.get<string>("controlPasswordHash");
+    const canControl = !controlPasswordHash;
+    if (canControl) this.controlGrants.set(guestId, true);
+    send(socket, {
+      type: "ready",
+      role,
+      guestId,
+      controlEnabled: canControl && this.controlAllowedByHost && Boolean(this.host),
+    });
+    if (!canControl) send(socket, { type: "control", enabled: false });
     if (this.host) send(this.host, { type: "guest-joined", guestId });
-    return { role, guestId };
+    return { role, guestId, canControl };
   }
 
   private forget(socket: WebSocket, state: ShareSocketState | null): void {
@@ -218,6 +283,7 @@ export class ShareSession implements DurableObject {
     }
     if (this.guests.get(state.guestId) === socket) {
       this.guests.delete(state.guestId);
+      this.controlGrants.delete(state.guestId);
       if (this.host) send(this.host, { type: "guest-left", guestId: state.guestId });
     }
   }

@@ -134,6 +134,82 @@
   text-align: center;
 }
 
+/* 黑屏排查用：把"卡在哪一环"直接写在画面上，省得靠猜。 */
+.share-diagnostics {
+  font-style: normal;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #8b8b95;
+  max-width: 46ch;
+  text-align: center;
+}
+
+/* 只看 / 可操作 的状态条：控制口令在这里解锁。 */
+.share-control-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  border: 1px solid #26262c;
+  border-radius: 12px;
+  background: #101114;
+  font-size: 12.5px;
+  color: #d4d4d8;
+}
+
+.share-control-bar--active {
+  border-color: rgba(74, 222, 128, 0.35);
+  background: rgba(20, 83, 45, 0.25);
+  color: #d1fae5;
+}
+
+.share-control-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.share-control-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 220px;
+}
+
+.share-control-input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  border: 1px solid #2c2c33;
+  border-radius: 8px;
+  background: #16171b;
+  color: #f4f4f5;
+  font-size: 12.5px;
+}
+
+.share-control-notice {
+  font-size: 11.5px;
+  color: #9ca3af;
+}
+
+.share-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.share-footer-side {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .share-stage-wrap {
   flex: 1;
   display: flex;
@@ -201,6 +277,29 @@
   align-items: center;
   justify-content: space-between;
   color: #f4f4f5;
+}
+
+.share-panel-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* 收起后的迷你状态条：只留"分享中 / 几人在看"，不挡画面。 */
+.share-panel-mini {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px 4px 12px;
+  border: 1px solid rgba(74, 222, 128, 0.35);
+  border-radius: 999px;
+  background: rgba(20, 83, 45, 0.35);
+  color: #d1fae5;
+  font-size: 12px;
+}
+
+.share-panel-mini-count {
+  color: #9ca3af;
 }
 
 .share-link-input {

@@ -11,6 +11,8 @@ export interface ShareHostState {
   status: ShareHostStatus;
   guests: number;
   message: string;
+  /** 当前转发给访客的轨道数；0 表示还没有画面可分享（黑屏的常见原因）。 */
+  tracks: number;
 }
 
 export interface ShareHostRelayOptions {
@@ -42,7 +44,7 @@ export class ShareHostRelay {
   private shareId = "";
   private hostToken = "";
   private readonly peers = new Map<string, GuestPeer>();
-  private state: ShareHostState = { status: "idle", guests: 0, message: "" };
+  private state: ShareHostState = { status: "idle", guests: 0, message: "", tracks: 0 };
 
   constructor(options: ShareHostRelayOptions) {
     this.options = options;
@@ -53,7 +55,7 @@ export class ShareHostRelay {
     return `${location.origin}/share/${this.shareId}`;
   }
 
-  async start(password: string): Promise<string> {
+  async start(password: string, controlPassword = ""): Promise<string> {
     this.stop();
     this.update({ status: "starting", guests: 0, message: "正在创建分享…" });
 
@@ -61,7 +63,7 @@ export class ShareHostRelay {
     const response = await fetch("/api/remote/share/create", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ password }),
+      body: JSON.stringify({ password, controlPassword }),
     });
     const body = (await response.json().catch(() => ({}))) as {
       shareId?: string;
@@ -92,8 +94,23 @@ export class ShareHostRelay {
   refreshStream(): void {
     if (!this.socket) return;
     for (const [guestId, peer] of this.peers) {
+      // 重连/切画面会换一整套轨道；旧 sender 留着的话，访客收到的是已经停帧的死轨（画面卡住或变黑）。
+      this.dropStaleSenders(peer.connection);
       this.attachTracks(peer.connection);
       void this.sendOffer(guestId, peer);
+    }
+  }
+
+  private dropStaleSenders(connection: RTCPeerConnection): void {
+    const live = new Set(this.options.getStream()?.getTracks() ?? []);
+    for (const sender of connection.getSenders()) {
+      if (sender.track && !live.has(sender.track)) {
+        try {
+          connection.removeTrack(sender);
+        } catch {
+          // 已经移除。
+        }
+      }
     }
   }
 
@@ -194,12 +211,21 @@ export class ShareHostRelay {
     await this.sendOffer(guestId, peer);
   }
 
+  /** 当前可转发的轨道数：主控没连接到设备时是 0，访客那边就是黑的。 */
+  private countTracks(): number {
+    return this.options.getStream()?.getTracks().filter((track) => track.readyState === "live").length ?? 0;
+  }
+
+  private isStable(peer: GuestPeer): boolean {
+    return peer.connection.signalingState === "stable";
+  }
+
   private attachTracks(connection: RTCPeerConnection): void {
     const stream = this.options.getStream();
     if (!stream) return;
     const existing = new Set(connection.getSenders().map((sender) => sender.track));
     for (const track of stream.getTracks()) {
-      if (existing.has(track)) continue;
+      if (track.readyState !== "live" || existing.has(track)) continue;
       try {
         connection.addTrack(track, stream);
       } catch {
@@ -210,6 +236,12 @@ export class ShareHostRelay {
 
   private async sendOffer(guestId: string, peer: GuestPeer): Promise<void> {
     try {
+      // 上一轮协商还没落定（刚发出 offer / 刚收到 answer）时重新发 offer 会直接失败，
+      // 于是访客永远停在"等待画面"。等一个 tick 再试，最多几轮。
+      if (!this.isStable(peer)) {
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        if (!this.isStable(peer) || peer.connection.connectionState === "closed") return;
+      }
       const offer = await peer.connection.createOffer();
       await peer.connection.setLocalDescription(offer);
       this.send({ type: "signal", to: guestId, payload: { kind: "offer", sdp: offer.sdp ?? "" } });
@@ -258,8 +290,8 @@ export class ShareHostRelay {
     this.socket.send(JSON.stringify(message));
   }
 
-  private update(next: ShareHostState): void {
-    this.state = next;
-    this.options.onChange(next);
+  private update(next: Omit<ShareHostState, "tracks">): void {
+    this.state = { ...next, tracks: this.countTracks() };
+    this.options.onChange(this.state);
   }
 }

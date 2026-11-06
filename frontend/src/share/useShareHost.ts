@@ -8,7 +8,7 @@ export interface ShareHostController extends ShareHostState {
   url: string;
   open: boolean;
   setOpen: (open: boolean) => void;
-  start: (password: string) => Promise<void>;
+  start: (password: string, controlPassword?: string) => Promise<void>;
   stop: () => void;
   refreshStream: () => void;
 }
@@ -18,7 +18,7 @@ export interface UseShareHostOptions {
   onInput: (event: ShareInputEvent) => void;
 }
 
-const IDLE: ShareHostState = { status: "idle", guests: 0, message: "" };
+const IDLE: ShareHostState = { status: "idle", guests: 0, message: "", tracks: 0 };
 
 /** 主控侧的分享状态：创建/停止链接、访客数量、错误提示。 */
 export function useShareHost(options: UseShareHostOptions): ShareHostController {
@@ -41,16 +41,17 @@ export function useShareHost(options: UseShareHostOptions): ShareHostController 
   }, []);
 
   const start = useCallback(
-    async (password: string) => {
+    async (password: string, controlPassword = "") => {
       const relay = ensureRelay();
       try {
-        const nextUrl = await relay.start(password);
+        const nextUrl = await relay.start(password, controlPassword);
         setUrl(nextUrl);
       } catch (error) {
         setState({
           status: "error",
           guests: 0,
           message: error instanceof Error ? error.message : "创建分享失败",
+          tracks: 0,
         });
       }
     },
@@ -69,5 +70,16 @@ export function useShareHost(options: UseShareHostOptions): ShareHostController 
   useEffect(() => () => relayRef.current?.stop(), []);
 
   const status: ShareHostStatus = state.status;
-  return { status, guests: state.guests, message: state.message, url, open, setOpen, start, stop, refreshStream };
+  return {
+    status,
+    guests: state.guests,
+    message: state.message,
+    tracks: state.tracks,
+    url,
+    open,
+    setOpen,
+    start,
+    stop,
+    refreshStream,
+  };
 }

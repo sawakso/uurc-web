@@ -2,9 +2,21 @@ import type { ShareInputEvent, ShareServerMessage, ShareSignalPayload } from "@u
 
 export type ShareGuestStatus = "connecting" | "waiting-host" | "connected" | "closed" | "error";
 
+export interface ShareDiagnostics {
+  /** 一句话说明当前画面为什么有/没有内容。 */
+  summary: string;
+  /** 视频是否真的在解码（false = 黑屏）。 */
+  decoding: boolean;
+}
+
 export interface ShareGuestSessionOptions {
   onStatus: (status: ShareGuestStatus, message: string) => void;
   onStream: (stream: MediaStream | null) => void;
+  onDiagnostics?: (diagnostics: ShareDiagnostics) => void;
+  /** 操作权限变化：只有用控制口令换到权限后才能动鼠标键盘。 */
+  onControlChange?: (canControl: boolean) => void;
+  /** 不算致命错误的提示（例如控制口令输错），不该把页面打回口令页。 */
+  onNotice?: (message: string) => void;
 }
 
 const ICE_SERVERS: RTCIceServer[] = [
@@ -24,6 +36,8 @@ export class ShareGuestSession {
   private stream: MediaStream | null = null;
   private pendingCandidates: RTCIceCandidateInit[] = [];
   private closed = false;
+  private statsTimer: ReturnType<typeof setInterval> | null = null;
+  private canControl = false;
 
   constructor(options: ShareGuestSessionOptions) {
     this.options = options;
@@ -32,6 +46,8 @@ export class ShareGuestSession {
   connect(shareId: string, password: string): void {
     this.close();
     this.closed = false;
+    this.canControl = false;
+    this.options.onControlChange?.(false);
     this.options.onStatus("connecting", "正在连接…");
 
     const protocol = location.protocol === "https:" ? "wss:" : "ws:";
@@ -60,7 +76,17 @@ export class ShareGuestSession {
     });
   }
 
+  /** 用控制口令换操作权限；换到之前只能看。 */
+  requestControl(password: string): void {
+    this.send({ type: "control-auth", password });
+  }
+
+  get controlEnabled(): boolean {
+    return this.canControl;
+  }
+
   sendInput(event: ShareInputEvent): void {
+    if (!this.canControl) return;
     if (this.channel?.readyState !== "open") return;
     try {
       this.channel.send(JSON.stringify(event));
@@ -85,6 +111,8 @@ export class ShareGuestSession {
     this.channel = null;
     this.connection = null;
     this.pendingCandidates = [];
+    this.canControl = false;
+    this.stopStats();
     if (this.stream) {
       this.stream = null;
       this.options.onStream(null);
@@ -102,13 +130,15 @@ export class ShareGuestSession {
         this.close();
         return;
       case "control":
-        if (!message.enabled) this.options.onStatus("waiting-host", "主控端尚未开启分享画面");
+        this.canControl = message.enabled;
+        this.options.onControlChange?.(this.canControl);
         return;
       case "signal":
         void this.handleSignal(message.payload);
         return;
       case "error":
-        this.options.onStatus("error", message.message);
+        // 例如控制口令输错：留在当前页面继续看，只给一条提示。
+        this.options.onNotice?.(message.message);
         return;
       default:
         return;
@@ -157,11 +187,13 @@ export class ShareGuestSession {
       this.stream = incoming;
       this.options.onStream(incoming);
       this.options.onStatus("connected", "画面已连接");
+      this.startStats();
     });
 
     connection.addEventListener("connectionstatechange", () => {
       if (connection.connectionState === "failed") {
-        this.options.onStatus("error", "与主控端的直连失败（可能被网络阻断）");
+        this.options.onStatus("error", "与主控端的直连失败（两端都在对称 NAT 后时需要 TURN 中继）");
+        this.stopStats();
       }
     });
 
@@ -174,6 +206,67 @@ export class ShareGuestSession {
     });
 
     return connection;
+  }
+
+  /** 每 2 秒读一次实时统计：黑屏时能看出是"没收到轨道"还是"收到但没数据"。 */
+  private startStats(): void {
+    if (this.statsTimer) return;
+    this.statsTimer = setInterval(() => void this.collectStats(), 2000);
+    void this.collectStats();
+  }
+
+  private stopStats(): void {
+    if (!this.statsTimer) return;
+    clearInterval(this.statsTimer);
+    this.statsTimer = null;
+  }
+
+  private async collectStats(): Promise<void> {
+    const connection = this.connection;
+    const report = await connection?.getStats().catch(() => null);
+    if (!connection || !report) return;
+
+    let inboundVideo: RTCStats | null = null;
+    let selectedPair: RTCStats | null = null;
+    const candidates = new Map<string, { candidateType?: string }>();
+    report.forEach((stat) => {
+      if (stat.type === "inbound-rtp" && (stat as RTCInboundRtpStreamStats).kind === "video") inboundVideo = stat;
+      if (stat.type === "candidate-pair" && (stat as RTCIceCandidatePairStats).state === "succeeded") selectedPair = stat;
+      if (stat.type === "local-candidate" || stat.type === "remote-candidate") {
+        candidates.set(stat.id, stat as unknown as { candidateType?: string });
+      }
+    });
+
+    if (!inboundVideo) {
+      this.options.onDiagnostics?.({
+        summary:
+          connection.connectionState === "connected"
+            ? "连线已建立，但主控端没有送来视频轨（对方可能还没连接被控设备）"
+            : `连线状态：${connection.connectionState}`,
+        decoding: false,
+      });
+      return;
+    }
+
+    const video = inboundVideo as RTCInboundRtpStreamStats;
+    const pair = selectedPair as RTCIceCandidatePairStats | null;
+    const localType = pair ? candidates.get(pair.localCandidateId)?.candidateType : undefined;
+    const remoteType = pair ? candidates.get(pair.remoteCandidateId)?.candidateType : undefined;
+    const frames = video.framesDecoded ?? 0;
+    const path = localType && remoteType ? `${localType}→${remoteType}` : "未知路径";
+
+    if (frames === 0) {
+      this.options.onDiagnostics?.({
+        summary: `已收到视频轨（${video.frameWidth ?? 0}×${video.frameHeight ?? 0}），但还没有解码出画面；路径 ${path}`,
+        decoding: false,
+      });
+      return;
+    }
+
+    this.options.onDiagnostics?.({
+      summary: `${video.frameWidth ?? 0}×${video.frameHeight ?? 0} · 已解码 ${frames} 帧 · 路径 ${path}`,
+      decoding: true,
+    });
   }
 
   private send(message: unknown): void {
