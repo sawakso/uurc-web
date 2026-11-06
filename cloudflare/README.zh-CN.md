@@ -33,6 +33,22 @@ npm run deploy:cloudflare
 npm run dev:cloudflare
 ```
 
+## 必须配置：控制台登录口令
+
+`/api/remote/*` 与 `/api/proxy/uu` 现在由 Worker 自己守门（不再依赖 Cloudflare Access），
+所以**部署后必须设一个登录口令**，否则这些接口一律返回 503：
+
+```bash
+npx wrangler secret put OWNER_PASSPHRASE
+```
+
+要求至少 8 位。也可以在 Cloudflare 控制台 → Workers → `uurc-web` → 设置 → 变量和机密里添加。
+
+可选：再设一个 `SESSION_SECRET` 专门做签名密钥（不设时用口令本身签名，够用）。
+登录态是 HttpOnly 签名 Cookie，有效期 14 天，改了口令旧 Cookie 立即失效。
+
+分享链接（`/share/<id>`、`/api/share/*`）不需要这道口令，访客用自己的观看口令进入。
+
 ## 说明
 
 - 配置位于 `wrangler.jsonc`。

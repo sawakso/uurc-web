@@ -33,6 +33,25 @@ For local Cloudflare runtime preview:
 npm run dev:cloudflare
 ```
 
+## Required: console passphrase
+
+`/api/remote/*` and `/api/proxy/uu` are now gated by the Worker itself instead of Cloudflare
+Access, so you **must** set a passphrase after deploying — otherwise those endpoints answer 503:
+
+```bash
+npx wrangler secret put OWNER_PASSPHRASE
+```
+
+Minimum 8 characters. You can also add it in the Cloudflare dashboard under
+Workers → `uurc-web` → Settings → Variables and secrets.
+
+Optionally set `SESSION_SECRET` to sign the session cookie with a dedicated key; without it the
+passphrase itself is used. Sessions are HttpOnly signed cookies valid for 14 days, and rotating
+the passphrase invalidates them immediately.
+
+Share links (`/share/<id>`, `/api/share/*`) do not require this passphrase — guests use their own
+view password.
+
 ## Notes
 
 - Configuration lives in `wrangler.jsonc`.

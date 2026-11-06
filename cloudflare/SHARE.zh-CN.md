@@ -27,56 +27,28 @@ UU 的房间只允许一个控制端，访客拿不到（也不应该拿到）ro
 
 控制口令留空时，行为退回旧版：拿到观看口令即可操作。
 
-## 部署后必须做的 Access 配置（否则访客会被 Cloudflare 登录页挡住）
+## 入口鉴权：Worker 自己做，不需要 Cloudflare Access
 
-访客不该看到 Cloudflare 的邮箱验证码页。分享用的是两条**没有 Access 身份**的路径，
-需要在 Zero Trust 里用 Bypass 应用单独放行。
+早期版本用 Cloudflare Access 守整站，代价是分享链接也会被邮箱验证码挡住；
+而 Access 的「按路径放行」在 Worker 目标下做不出来（控制台会报
+`use_clientless_isolation_app_launcher_url can only be enabled for apps with private destinations`）。
+现在改成：
 
-### 先看清：你的应用目标是什么类型
-
-打开 Zero Trust → Access controls → Applications → 点进应用 → 详细信息，
-看「目标」那一栏：
-
-| 目标类型 | 能不能按路径放行 | 说明 |
+| 路径 | 谁进 | 怎么验证 |
 |---|---|---|
-| **Workers**（`uurc-web` · Worker 的生产和预览 URL） | ❌ 不能 | Worker 级策略对该 Worker 的**所有**域名与路径生效，界面上没有 Path 输入框 |
-| **公网主机名**（`uurc.sawakso.com`） | ✅ 能 | 就是下面要建的那种，有 Domain + Path 两个输入框 |
+| `/share/<id>`、`/api/share/<id>/ws` | 任何拿到链接的人 | 观看口令（+ 可选控制口令），由分享的 Durable Object 校验 |
+| 其它页面（设备列表、远控页） | 只有你自己 | `POST /api/auth/login` 比对 `OWNER_PASSPHRASE`，发 HttpOnly 签名 Cookie |
+| `/api/remote/*`、`/api/proxy/uu` | 只有你自己 | 同一个 Cookie；没有就 401 |
 
-所以：**不要在这页上找路径设置，它没有。** 路径放行必须新建「公网主机名」类型的应用。
+所以：
 
-好消息是不用删掉现在这个 Worker 应用——Cloudflare 的匹配优先级是
-**主机名应用 > Worker 应用 > 账号级策略**，更具体的主机名 + 路径应用会赢。
-
-### 要建的两个应用
-
-| Path | 用途 | 策略 |
-|---|---|---|
-| `share` | 访客页面 `/share/<id>` | Action = **Bypass**，Include = `Everyone` |
-| `api/share` | 访客 WebSocket `/api/share/<id>/ws` | Action = **Bypass**，Include = `Everyone` |
-
-步骤：Zero Trust → Access controls → Applications → **Create new application** →
-**Self-hosted and private** → **Add public hostname**；Domain 填 `uurc.sawakso.com`，
-Path 分别填 `share` 与 `api/share`；策略页 Action 选 **Bypass**、Include 选 **Everyone**；
-Authentication 页不选 IdP，直接保存。
-
-要点：
-
-- **Allow + Everyone ≠ 公开**。Allow 只是"任何通过身份验证的人都行"，仍然会弹验证码页；
-  要真的跳过登录，Action 必须是 **Bypass**。
-- 必须建**两个**应用（页面和 API 分开），只放行页面的结果是「页面能开、画面连不上」。
-- Path 不要带前导斜杠，也不要写 `<id>`。
-- 验证：无痕窗口打开 `https://uurc.sawakso.com/share/<id>`，
-  应该直接看到「输入观看口令」，而不是 `cloudflareaccess.com` 的验证码页。
-
-### 顺便收紧主控入口
-
-如果主控那侧的策略是 `Allow + Everyone`，配合 One-time PIN 等于**任何人输入任意邮箱
-收到验证码就能进**——因为 Everyone 包含了所有能收到验证码的人。
-把 Include 改成 **Emails = 你自己的邮箱**，只留你一个人。
-
-> 创建分享仍然走 `/api/remote/share/create`（Access 保护的前缀），
-> 所以即使 `api/share` 被放行，陌生人也建不了分享。
-> 主控身份靠创建时下发的一次性 `hostToken` 自证，不依赖任何请求头。
+- **不需要再建任何 Access 应用。** 之前为路径放行建的那些可以直接删掉，留着的话
+  访客仍会被验证码页拦住——因为 Access 是在 Worker 之前执行的。
+- 部署时必须设口令：`npx wrangler secret put OWNER_PASSPHRASE`（至少 8 位），
+  否则控制台接口返回 503 并直接在页面上提示缺少配置。
+- 登录态有效期 14 天；改口令会让所有已登录的浏览器立刻失效。
+- 创建分享走 `/api/remote/share/create`，它在 Cookie 门内，陌生人有 `api/share` 也建不了分享。
+  主控身份靠创建时下发的一次性 `hostToken` 自证，不依赖任何请求头。
 
 ## 访客黑屏怎么排查
 

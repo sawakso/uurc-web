@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes, useMatch } from "react-router";
 
 import { DeviceListPage } from "./components/DeviceListPage.js";
 import { LoginPage } from "./components/LoginPage.js";
+import { OwnerGate } from "./components/OwnerGate.js";
 import { RemoteControlPage } from "./components/RemoteControlPage.js";
 import { ShareGuestPage } from "./components/ShareGuestPage.js";
 import { Toast } from "./components/Toast.js";
@@ -20,10 +21,15 @@ export default function App() {
 function RootRoutes() {
   const shareMatch = useMatch("/share/:shareId");
   // 访客页不加载主控制器：访客没有 UU 登录态，也不应该触发任何 /api/remote 请求。
+  // 它同样不进 OwnerGate——访客不该看到主人的口令输入框。
   if (shareMatch?.params.shareId) {
     return <ShareGuestPage shareId={shareMatch.params.shareId} />;
   }
-  return <AppRoutes />;
+  return (
+    <OwnerGate>
+      <AppRoutes />
+    </OwnerGate>
+  );
 }
 
 function AppRoutes() {

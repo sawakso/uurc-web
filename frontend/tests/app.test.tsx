@@ -1392,6 +1392,11 @@ async function handleFetch(input: string | URL | Request, init?: RequestInit): P
     return handleUuProxyFetch(body);
   }
 
+  // 控制台入口闸门：这些用例默认"已登录"，专测口令页的用例在 ownerGate.test.tsx 里。
+  if (path === "/api/auth/session") {
+    return jsonResponse({ configured: true, authenticated: true, message: "" });
+  }
+
   requestLog.push({ method, path, body });
 
   if (path === "/api/runtime") {

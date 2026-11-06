@@ -155,6 +155,30 @@ export async function sendRemoteSignalSoac(input: RemoteSignalSoacRequest): Prom
   });
 }
 
+export interface OwnerSession {
+  /** 服务端是否配置了登录口令；false 时说明部署方少加了 OWNER_PASSPHRASE 机密变量。 */
+  configured: boolean;
+  authenticated: boolean;
+  /** 未配置时的具体指引，直接展示给部署者看。 */
+  message: string;
+}
+
+/** 当前浏览器是否已经用口令登录过控制台。 */
+export async function getOwnerSession(): Promise<OwnerSession> {
+  return apiRequest<OwnerSession>("/api/auth/session");
+}
+
+export async function loginOwner(password: string): Promise<void> {
+  await apiRequest<{ ok: boolean }>("/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ password }),
+  });
+}
+
+export async function logoutOwner(): Promise<void> {
+  await apiRequest<{ ok: boolean }>("/api/auth/logout", { method: "POST" });
+}
+
 async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(path, {
     ...init,

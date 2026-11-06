@@ -15,6 +15,18 @@ import {
   parseSignalGatewayStartRequest,
   parseSignalSoacRequest,
 } from "@uurc/shared/signalGatewayProtocol";
+import {
+  assertLoginAllowed,
+  clearLoginFailures,
+  clearOwnerSessionCookie,
+  hasValidOwnerSession,
+  issueOwnerSessionCookie,
+  ownerAuthConfigured,
+  ownerAuthMisconfiguredReason,
+  readClientIp,
+  recordLoginFailure,
+  verifyOwnerPassphrase,
+} from "./ownerAuth";
 
 const API_BASE = "https://api.nrd.nie.163.com";
 const UU_PROXY_TIMEOUT_MS = 30_000;
@@ -26,9 +38,10 @@ interface Env {
   ASSETS: Fetcher;
   REMOTE_SIGNAL_SESSION: DurableObjectNamespace<RemoteSignalSessionClass>;
   SHARE_SESSION: DurableObjectNamespace;
-  // 默认 fail-closed：拿不到 Cloudflare Access 身份就拒绝，避免误删 Access 策略后整站裸奔。
-  // 本地 wrangler dev 需要 .dev.vars 里设置 REQUIRE_ACCESS=false。
-  REQUIRE_ACCESS?: string;
+  // 主人登录口令与签名密钥，都由 Worker 自己校验（不再依赖 Cloudflare Access）。
+  // 未配置时 /api/remote/* 与 /api/proxy/uu 一律 403，属于 fail-closed。
+  OWNER_PASSPHRASE?: string;
+  SESSION_SECRET?: string;
 }
 
 class BodyTooLargeError extends Error {}
@@ -44,24 +57,34 @@ export default {
     if (url.pathname === "/api/runtime") {
       return json(createRuntimeProfile("cloudflare-worker"));
     }
+    // 入口鉴权：这三条必须公开，否则登录页自己也进不去。
+    // 分享路径（/share/*、/api/share/*）本来就不经过这里，访客不会被主人的登录态牵连。
+    if (url.pathname === "/api/auth/session" && request.method === "GET") {
+      return handleAuthSession(request, env);
+    }
+    if (url.pathname === "/api/auth/login" && request.method === "POST") {
+      return handleAuthLogin(request, env);
+    }
+    if (url.pathname === "/api/auth/logout" && request.method === "POST") {
+      return handleAuthLogout(request);
+    }
     if (url.pathname === "/api/proxy/uu" && request.method === "POST") {
-      const guard = assertAccessIdentity(request, env);
+      const guard = await requireOwner(request, env);
       if (guard) return guard;
       return handleUuProxy(request);
     }
-    // 创建分享：走 Access 保护的前缀（只有站点所有者能建），
-    // 这样 /api/share/* 可以被 Access 放行给访客，而创建口仍然锁在门内。
+    // 创建分享只对主人开放：它需要一个主人身份，所以挡在登录态之后。
     // 必须排在 "/api/remote/" 前缀判断之前——否则会被远端 API 路由吞掉，返回 not found。
     if (url.pathname === "/api/remote/share/create") {
       if (request.method !== "POST") return json({ error: "Method not allowed" }, { status: 405 });
-      const guard = assertAccessIdentity(request, env);
+      const guard = await requireOwner(request, env);
       if (guard) return guard;
       return handleShareCreate(request, env);
     }
     if (url.pathname.startsWith("/api/remote/")) {
       return handleRemoteApi(request, env);
     }
-    // 分享链接：访客没有 Cloudflare Access 身份，所以这条路径自身承担鉴权（口令 / 主控令牌）。
+    // 分享链接：访客没有主人登录态，所以这条路径自身承担鉴权（口令 / 主控令牌）。
     if (url.pathname.startsWith("/api/share/")) {
       return handleShareApi(request, env);
     }
@@ -180,7 +203,7 @@ async function handleShareApi(request: Request, env: Env): Promise<Response> {
 
   if (sub === "ws") {
     // 主控 / 访客一律靠第一条 auth 消息自证（主控令牌或口令），
-    // 这样即使整条路径被 Access 放行，也不会有人靠伪造请求头抢到主控身份。
+    // 这样即使这条路径完全公开，也不会有人靠伪造请求头抢到主控身份。
     return session.fetch(new Request(request.url, { headers: request.headers }));
   }
 
@@ -188,13 +211,12 @@ async function handleShareApi(request: Request, env: Env): Promise<Response> {
 }
 
 async function handleRemoteApi(request: Request, env: Env): Promise<Response> {
-  const access = await resolveAccessIdentity(request, env);
-  if (access instanceof Response) return access;
+  const guard = await requireOwner(request, env);
+  if (guard) return guard;
 
   const url = new URL(request.url);
-  // 每个 Access 用户一个 DO：不同账号（例如你给家人开的账号）不会互相串话或互顶会话。
-  // 同一账号的多个浏览器仍共用一条远控会话，保持原有使用习惯。
-  const session = env.REMOTE_SIGNAL_SESSION.getByName(access.sessionName);
+  // 单主人模式：整个部署只服务一个账号，所以 DO 名固定，多浏览器共用同一条远控会话。
+  const session = env.REMOTE_SIGNAL_SESSION.getByName(OWNER_SESSION_NAME);
 
   try {
     if (url.pathname === "/api/remote/bootstrap") {
@@ -239,35 +261,64 @@ async function handleRemoteApi(request: Request, env: Env): Promise<Response> {
   }
 }
 
-interface AccessIdentity {
-  sessionName: string;
+// 单主人部署，信号会话固定落在这个 DO 上。
+const OWNER_SESSION_NAME = "owner";
+
+// 只拒绝、不猜：服务端没配口令时明确 503，配了口令但 Cookie 无效时 401。
+// 前端据此区分「去登录」和「去改配置」，不会卡在无解的登录页上。
+async function requireOwner(request: Request, env: Env): Promise<Response | null> {
+  if (!ownerAuthConfigured(env)) {
+    return json({ error: ownerAuthMisconfiguredReason(env), code: "owner_auth_unconfigured" }, { status: 503 });
+  }
+  if (await hasValidOwnerSession(request, env)) return null;
+  return json({ error: "需要先登录控制台", code: "owner_auth_required" }, { status: 401 });
 }
 
-// 注意：这里是 fail-closed 的卫生检查，不是密码学校验。
-// 真正的身份边界是 Cloudflare Access（加上 workers_dev=false 关掉绕行入口）；
-// 若要防"能直达 Worker 的人伪造 cf-* 头"，需要再校验 Cf-Access-Jwt-Assertion 的签名。
-function assertAccessIdentity(request: Request, env: Env): Response | null {
-  if ((env.REQUIRE_ACCESS ?? "true") === "false") return null;
-  const email = request.headers.get("cf-access-authenticated-user-email")?.trim() ?? "";
-  if (email) return null;
-  return json({ error: "Cloudflare Access identity is required" }, { status: 403 });
+async function handleAuthSession(request: Request, env: Env): Promise<Response> {
+  const configured = ownerAuthConfigured(env);
+  return json({
+    configured,
+    authenticated: configured && (await hasValidOwnerSession(request, env)),
+    message: configured ? "" : ownerAuthMisconfiguredReason(env),
+  });
 }
 
-async function resolveAccessIdentity(request: Request, env: Env): Promise<AccessIdentity | Response> {
-  const guard = assertAccessIdentity(request, env);
-  if (guard) return guard;
+async function handleAuthLogin(request: Request, env: Env): Promise<Response> {
+  if (!ownerAuthConfigured(env)) {
+    return json({ error: ownerAuthMisconfiguredReason(env), code: "owner_auth_unconfigured" }, { status: 503 });
+  }
+  const ip = readClientIp(request);
+  const limit = assertLoginAllowed(ip);
+  if (!limit.allowed) {
+    return json(
+      { error: `尝试次数过多，请 ${Math.ceil(limit.retryAfterSeconds / 60)} 分钟后再试` },
+      { status: 429, headers: { "retry-after": String(limit.retryAfterSeconds) } },
+    );
+  }
 
-  const email = request.headers.get("cf-access-authenticated-user-email")?.trim().toLowerCase() ?? "";
-  if (!email) return { sessionName: "unauthenticated" };
+  let body: JsonRecord;
+  try {
+    body = await readJsonBody(request);
+  } catch (error) {
+    if (error instanceof BodyTooLargeError) return json({ error: "request body too large" }, { status: 413 });
+    throw error;
+  }
+  const password = typeof body.password === "string" ? body.password : "";
+  if (password.length === 0 || password.length > 256) {
+    return json({ error: "请输入登录口令" }, { status: 400 });
+  }
+  if (!(await verifyOwnerPassphrase(env, password))) {
+    recordLoginFailure(ip);
+    return json({ error: "口令不正确" }, { status: 401 });
+  }
 
-  // 用邮箱哈希做 DO 名称：不在 DO ID 里留下明文邮箱，同时保持同一用户稳定映射。
-  const hex = await sha256Hex(email);
-  return { sessionName: `user-${hex.slice(0, 32)}` };
+  clearLoginFailures(ip);
+  return json({ ok: true }, { headers: { "set-cookie": await issueOwnerSessionCookie(request, env) } });
 }
 
-async function sha256Hex(value: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+async function handleAuthLogout(request: Request): Promise<Response> {
+  // 无状态 Cookie：清了客户端就够了，服务端不留会话表。
+  return json({ ok: true }, { headers: { "set-cookie": clearOwnerSessionCookie(request) } });
 }
 
 async function readJsonBody(request: Request): Promise<JsonRecord> {
