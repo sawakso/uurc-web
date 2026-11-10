@@ -1651,11 +1651,18 @@ export function buildStreamerMacMouseMoveAbsoluteInputMessage(input: BuildStream
   });
 }
 
+// 纵向符号要翻一次：浏览器里 deltaY > 0 表示「向下滚」（滚轮朝自己转），
+// 而被控端协议沿用 Windows 的约定，delta_y > 0 表示「向上滚」。
+// 照抄过去就会上下颠倒，所以这里取反；横向两边正方向一致，delta_x 保持不动。
+function browserDeltaYToRemote(input: BuildStreamerMouseScrollInputMessageInput): number {
+  return -Math.round(input.deltaY);
+}
+
 export function buildStreamerMouseScrollInputMessage(input: BuildStreamerMouseScrollInputMessageInput): string {
   return JSON.stringify({
     action: STREAMER_DESKTOP_INPUT_EVENT_TYPES.mouseScroll,
     delta_x: Math.round(input.deltaX),
-    delta_y: Math.round(input.deltaY),
+    delta_y: browserDeltaYToRemote(input),
   });
 }
 
@@ -1663,7 +1670,7 @@ export function buildStreamerMacMouseScrollInputMessage(input: BuildStreamerMous
   return JSON.stringify({
     action: STREAMER_DESKTOP_INPUT_EVENT_TYPES.mouseScroll,
     delta_x: Math.round(input.deltaX),
-    delta_y: Math.round(input.deltaY),
+    delta_y: browserDeltaYToRemote(input),
   });
 }
 

@@ -1160,7 +1160,8 @@ describe("streamer protocol constants", () => {
       '{"action":"mouse_move_absolute","abs_x":320,"abs_y":240}',
     );
     expect(buildStreamerMouseScrollInputMessage({ deltaX: 0, deltaY: -120 })).toBe(
-      '{"action":"mouse_scroll","delta_x":0,"delta_y":-120}',
+      // 浏览器 -120 = 向上滚；被控端用 +120 表示向上，符号要翻。
+      '{"action":"mouse_scroll","delta_x":0,"delta_y":120}',
     );
     expect(buildStreamerKeyboardInputMessage({ action: "keyboardClick", value: "A" })).toBe(
       '{"action":"kbd_click","key":"A"}',
@@ -1177,7 +1178,8 @@ describe("streamer protocol constants", () => {
       }),
     ).toBe('{"action":"mouse_move_absolute","abs_x":0.2,"abs_y":0.9601851851851851}');
     expect(buildStreamerMacMouseScrollInputMessage({ deltaX: 0, deltaY: -120 })).toBe(
-      '{"action":"mouse_scroll","delta_x":0,"delta_y":-120}',
+      // 同上：纵向符号翻转，横向不动。
+      '{"action":"mouse_scroll","delta_x":0,"delta_y":120}',
     );
     expect(buildStreamerMacKeyboardInputMessage({ action: "keyboardPress", value: 59 })).toBe(
       '{"action":"kbd_press","key":56}',

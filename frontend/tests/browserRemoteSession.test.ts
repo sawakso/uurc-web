@@ -787,7 +787,7 @@ describe("BrowserRemoteSession", () => {
             input: {
               action: "mouse_scroll",
               delta_x: 0,
-              delta_y: -120,
+              delta_y: 120,
             },
           }),
         }),
