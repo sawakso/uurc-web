@@ -19,10 +19,15 @@ describe("Android source keycode mapping for streamer input", () => {
   });
 
   // 未收录的键一律丢弃：以前会把 event.key 当键码发出去，
-  // 被控端按字符解析时可能误触发真实按键（大写锁死、字母大小写漂移就是这么来的）。
+  // 被控端按字符解析时可能误触发真实按键（字母大小写漂移就是这么来的）。
   it("drops unlisted keys instead of forwarding raw DOM key names", () => {
     expect(toAndroidKeyCodeFromDomEvent({ code: "Unidentified", key: "AudioVolumeUp" })).toBeUndefined();
-    expect(toAndroidKeyCodeFromDomEvent({ code: "CapsLock", key: "CapsLock" })).toBeUndefined();
+    expect(toAndroidKeyCodeFromDomEvent({ code: "F13", key: "F13" })).toBeUndefined();
+  });
+
+  // 大写锁定是切换键：漏映射时按下去什么都不发，被控端开着大写就再也解不掉。
+  it("maps CapsLock so the remote lock state can be toggled", () => {
+    expect(toAndroidKeyCodeFromDomEvent({ code: "CapsLock", key: "CapsLock" })).toBe(115);
   });
 
   it("maps the numeric keypad so its operators and Enter work", () => {

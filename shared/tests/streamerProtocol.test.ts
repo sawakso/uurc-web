@@ -1205,6 +1205,10 @@ describe("streamer protocol constants", () => {
     expect(buildStreamerWindowsKeyboardInputMessage({ action: "keyboardPress", value: 117 })).toBe(
       '{"action":"kbd_press","key":91,"interrept":true}',
     );
+    // 大写锁定 -> VK_CAPITAL(0x14)：切换键，漏了它被控端开着大写就解不掉。
+    expect(buildStreamerWindowsKeyboardInputMessage({ action: "keyboardPress", value: 115 })).toBe(
+      '{"action":"kbd_press","key":20,"interrept":true}',
+    );
     // 未命中(非数字/未映射)返回空串，由发送层静默跳过。
     expect(buildStreamerWindowsKeyboardInputMessage({ action: "keyboardPress", value: "A" })).toBe("");
   });

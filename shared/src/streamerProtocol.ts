@@ -1585,6 +1585,9 @@ export const STREAMER_ANDROID_TO_WINDOWS_KEY_CODES: Readonly<Record<number, numb
   55: 188, 56: 190, 68: 192, 69: 189, 70: 187, 71: 219, 72: 221, 73: 220, 74: 186, 75: 222, 76: 191,
   // 修饰键(左右专属 VK):Alt L/R、Shift L/R、Ctrl L/R、Win L/R
   57: 164, 58: 165, 59: 160, 60: 161, 113: 162, 114: 163, 117: 91, 118: 92,
+  // 大写锁定 -> VK_CAPITAL(0x14)。缺了它 CapsLock 按下去什么都不发，
+  // 被控端一旦开着大写就再也切不回来。按下即切换，不需要按住语义。
+  115: 20,
   // 编辑/导航:Tab、Space、Enter、Backspace、PageUp/Down、Esc、Delete、Home、End、Insert
   61: 9, 62: 32, 66: 13, 67: 8, 92: 33, 93: 34, 111: 27, 112: 46, 122: 36, 123: 35, 124: 45,
   // 功能键 F1-F12 -> VK 0x70-0x7B

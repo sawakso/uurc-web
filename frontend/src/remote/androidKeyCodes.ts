@@ -10,6 +10,8 @@ const ANDROID_KEY_CODES_BY_DOM_CODE: Record<string, number> = {
   Backspace: 67,
   BracketLeft: 71,
   BracketRight: 72,
+  // 大写锁定：漏了它，被控端一旦开了 CapsLock 就再也解不掉（按什么都是大写）。
+  CapsLock: 115,
   Comma: 55,
   Delete: 112,
   End: 123,
@@ -73,8 +75,8 @@ for (let index = 0; index < 26; index += 1) {
 }
 
 // 只按物理键位（event.code）查表。查不到就返回 undefined ——
-// 不要把 event.key 当键码发出去：被控端按字符解析时，一个 "CapsLock" 之类的字符串
-// 可能被当成真实按键（大写锁死就是这么来的），字母大小写也会随本机布局漂移。
+// 不要把 event.key 当键码发出去：被控端按字符解析时，一个 "AudioVolumeUp" 之类的字符串
+// 可能被当成真实按键误触发，字母大小写也会随本机布局漂移。
 export function toAndroidKeyCodeFromDomEvent(event: DomKeyboardEventLike): number | undefined {
   return ANDROID_KEY_CODES_BY_DOM_CODE[event.code];
 }
