@@ -6,6 +6,7 @@ export function RemoteVideoSourcePanel({
   displaySlots,
   onDisplaySlotsChange,
   onFlipRemoteScreen,
+  onResetScreenRotation,
   onRemoteVideoSourceChange,
   primaryRemoteVideoId,
   remoteVideoSources,
@@ -14,6 +15,7 @@ export function RemoteVideoSourcePanel({
   | "displaySlots"
   | "onDisplaySlotsChange"
   | "onFlipRemoteScreen"
+  | "onResetScreenRotation"
   | "onRemoteVideoSourceChange"
   | "primaryRemoteVideoId"
   | "remoteVideoSources"
@@ -68,8 +70,13 @@ export function RemoteVideoSourcePanel({
         <button type="button" onClick={() => onFlipRemoteScreen("next")}>
           下一块屏
         </button>
+        <button type="button" onClick={onResetScreenRotation}>
+          转回来
+        </button>
       </div>
-      <small>等同于在被控端按 Ctrl+Alt+←/→。切过去后画面会换成另一块显示器，键鼠跟随当前画面。</small>
+      <small>
+        切屏等同于发送 Ctrl+Alt+←/→。画面若整个转了 90°，按「转回来」（Ctrl+Alt+↑）复位。
+      </small>
       {multiSlotRequested ? (
         <small>
           {multiSlotNotHonored

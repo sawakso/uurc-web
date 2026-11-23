@@ -519,32 +519,54 @@ export class BrowserRemoteSession {
   }
 
   /**
-   * 走键盘注入通道按一次被控端的切屏热键（Windows 客户端是 Ctrl+Alt+←/→）。
+   * 走键盘注入通道按一次 Ctrl+Alt+←/→，对应 UU 远程官方的「切换上一个/下一个屏幕」。
    *
    * 为什么不发 flip_screen_req：那条 RPC 的外层 tag(23) 和 direction 字段全是从
    * 异常字符串表反推的，真机实测被控端没有任何反应。而组合键这条路复用的是
-   * 已经验证过的 kbd_press 通道——被控端自己在系统里注册了这个热键，键按下去
-   * 它就会去切捕获源，跟本地按一模一样。
+   * 已经验证过的 kbd_press 通道，成本极低。
+   *
+   * 注意：官方文档把这个键归在「控制端功能快捷键」里，也就是可能只由主控端客户端
+   * 本地拦截、不转发给被控端。真正生效的前提是被控端的 UU 客户端也注册了这个
+   * 系统级热键。若实测无效，就说明前提不成立，得回到协议层（主动要第二路视频轨）。
    */
   sendCaptureFlipHotkey(direction: "prev" | "next" = "next"): void {
+    // Android keycode DPAD_LEFT=21 / DPAD_RIGHT=22。
+    this.sendCtrlAltArrow(direction === "prev" ? 21 : 22, "切屏热键");
+  }
+
+  /**
+   * Ctrl+Alt+↑：把被控端屏幕方向转回正常。
+   *
+   * 纯粹是保险。Intel 显卡驱动把 Ctrl+Alt+方向键注册成「旋转屏幕」，
+   * 和 UU 的切屏热键撞车；远控中撞上了画面会整个转 90°，人又不在机器旁边，
+   * 没有这个按钮就只能干瞪眼。
+   */
+  sendScreenRotationReset(): void {
+    // Android keycode DPAD_UP=19。
+    this.sendCtrlAltArrow(19, "屏幕旋转复位热键");
+  }
+
+  private sendCtrlAltArrow(arrowKeyCode: number, label: string): void {
     if (!isDesktopPlatform(this.targetPlatform) && this.targetPlatform !== undefined) return;
-    // Android keycode：CTRL_LEFT=113、ALT_LEFT=57、DPAD_LEFT=21、DPAD_RIGHT=22，
-    // 三个键都在 STREAMER_ANDROID_TO_WINDOWS_KEY_CODES 里，会被映射成对应的 VK。
+    // Android keycode：CTRL_LEFT=113、ALT_LEFT=57，方向键 19/21/22，
+    // 全都在 STREAMER_ANDROID_TO_WINDOWS_KEY_CODES 里，会被映射成对应的 VK。
     const CTRL_LEFT = 113;
     const ALT_LEFT = 57;
-    const arrow = direction === "prev" ? 21 : 22;
     // 顺序要死：先按住两个修饰键，再点方向键，最后倒序释放。
     // 中途抛错也必须把修饰键松开，否则被控端会一直卡着 Ctrl+Alt。
     try {
       this.sendKeyboardInput({ action: "keyboardPress", value: CTRL_LEFT });
       this.sendKeyboardInput({ action: "keyboardPress", value: ALT_LEFT });
-      this.sendKeyboardInput({ action: "keyboardPress", value: arrow });
-      this.sendKeyboardInput({ action: "keyboardRelease", value: arrow });
+      this.sendKeyboardInput({ action: "keyboardPress", value: arrowKeyCode });
+      this.sendKeyboardInput({ action: "keyboardRelease", value: arrowKeyCode });
     } finally {
       this.sendKeyboardInput({ action: "keyboardRelease", value: ALT_LEFT });
       this.sendKeyboardInput({ action: "keyboardRelease", value: CTRL_LEFT });
     }
-    this.recordDebugEvent("data_send", "发送切屏热键", { direction, arrow, targetPlatform: this.targetPlatform });
+    this.recordDebugEvent("data_send", `发送${label}`, {
+      arrowKeyCode,
+      targetPlatform: this.targetPlatform,
+    });
   }
 
   // 直接上屏一段字符(text_input)。桌面被控端打字用它替代逐键 kbd_press，避免字母连发；
