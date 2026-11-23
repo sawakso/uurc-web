@@ -61,12 +61,15 @@ export function RemoteVideoSourcePanel({
           多屏 2 路
         </button>
       </div>
-      <div className="video-source-slots" role="group" aria-label="切换屏幕">
-        <button type="button" onClick={onFlipRemoteScreen}>
-          切到另一块屏（实验）
+      <div className="video-source-slots" role="group" aria-label="切换捕获屏幕">
+        <button type="button" onClick={() => onFlipRemoteScreen("prev")}>
+          上一块屏
+        </button>
+        <button type="button" onClick={() => onFlipRemoteScreen("next")}>
+          下一块屏
         </button>
       </div>
-      <small>切屏是请求受控端换捕获源；被控端不认就只是没有任何反应，不影响当前画面。</small>
+      <small>等同于在被控端按 Ctrl+Alt+←/→。切过去后画面会换成另一块显示器，键鼠跟随当前画面。</small>
       {multiSlotRequested ? (
         <small>
           {multiSlotNotHonored

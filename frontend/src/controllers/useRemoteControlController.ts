@@ -1744,7 +1744,7 @@ export function useRemoteControlController() {
     onRemoteVideoSourceChange: handleRemoteVideoSourceChange,
     displaySlots,
     onDisplaySlotsChange: handleDisplaySlotsChange,
-    onFlipRemoteScreen: () => browserRemoteSession.current?.sendFlipScreen(),
+    onFlipRemoteScreen: (direction: "prev" | "next") => browserRemoteSession.current?.sendCaptureFlipHotkey(direction),
     onRemoteVideoSample: handleRemoteVideoSample,
     onReadLocalClipboard: () => void handleReadLocalClipboard(),
     onReturnToDevices: () => void handleReturnToDevices(),

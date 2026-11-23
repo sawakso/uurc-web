@@ -1413,6 +1413,35 @@ describe("BrowserRemoteSession", () => {
     );
   });
 
+  it("presses the controlled device Ctrl+Alt+arrow hotkey to flip the captured screen", async () => {
+    const api = new FakeRemoteApi();
+    const peer = new FakePeerConnection();
+    const session = new BrowserRemoteSession({
+      api,
+      createPeerConnection: () => peer,
+      now: () => 3200,
+    });
+    await session.start({
+      appControlId: "control-1",
+      appDataBase64: "Cg==",
+      streamerData: "{}",
+      targetPlatform: 1,
+    });
+
+    const sendKeyboardInput = vi.spyOn(session, "sendKeyboardInput");
+    session.sendCaptureFlipHotkey("next");
+
+    // 修饰键必须先按住、方向键点一下、再倒序松开，否则被控端会卡着 Ctrl+Alt。
+    expect(sendKeyboardInput.mock.calls.map(([input]) => [input.action, input.value])).toEqual([
+      ["keyboardPress", 113],
+      ["keyboardPress", 57],
+      ["keyboardPress", 22],
+      ["keyboardRelease", 22],
+      ["keyboardRelease", 57],
+      ["keyboardRelease", 113],
+    ]);
+  });
+
   it("uses the Mac keymap raw control-string route", async () => {
     const api = new FakeRemoteApi();
     const peer = new FakePeerConnection();

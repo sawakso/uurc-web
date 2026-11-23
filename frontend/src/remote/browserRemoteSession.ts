@@ -518,6 +518,35 @@ export class BrowserRemoteSession {
     );
   }
 
+  /**
+   * 走键盘注入通道按一次被控端的切屏热键（Windows 客户端是 Ctrl+Alt+←/→）。
+   *
+   * 为什么不发 flip_screen_req：那条 RPC 的外层 tag(23) 和 direction 字段全是从
+   * 异常字符串表反推的，真机实测被控端没有任何反应。而组合键这条路复用的是
+   * 已经验证过的 kbd_press 通道——被控端自己在系统里注册了这个热键，键按下去
+   * 它就会去切捕获源，跟本地按一模一样。
+   */
+  sendCaptureFlipHotkey(direction: "prev" | "next" = "next"): void {
+    if (!isDesktopPlatform(this.targetPlatform) && this.targetPlatform !== undefined) return;
+    // Android keycode：CTRL_LEFT=113、ALT_LEFT=57、DPAD_LEFT=21、DPAD_RIGHT=22，
+    // 三个键都在 STREAMER_ANDROID_TO_WINDOWS_KEY_CODES 里，会被映射成对应的 VK。
+    const CTRL_LEFT = 113;
+    const ALT_LEFT = 57;
+    const arrow = direction === "prev" ? 21 : 22;
+    // 顺序要死：先按住两个修饰键，再点方向键，最后倒序释放。
+    // 中途抛错也必须把修饰键松开，否则被控端会一直卡着 Ctrl+Alt。
+    try {
+      this.sendKeyboardInput({ action: "keyboardPress", value: CTRL_LEFT });
+      this.sendKeyboardInput({ action: "keyboardPress", value: ALT_LEFT });
+      this.sendKeyboardInput({ action: "keyboardPress", value: arrow });
+      this.sendKeyboardInput({ action: "keyboardRelease", value: arrow });
+    } finally {
+      this.sendKeyboardInput({ action: "keyboardRelease", value: ALT_LEFT });
+      this.sendKeyboardInput({ action: "keyboardRelease", value: CTRL_LEFT });
+    }
+    this.recordDebugEvent("data_send", "发送切屏热键", { direction, arrow, targetPlatform: this.targetPlatform });
+  }
+
   // 直接上屏一段字符(text_input)。桌面被控端打字用它替代逐键 kbd_press，避免字母连发；
   // 走与其他控制输入相同的 sendInputData 通道(桌面为裸 JSON)。
   sendTextInput(content: string): void {
