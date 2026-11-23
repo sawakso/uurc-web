@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
 
-import { toRemoteMousePosition } from "../src/remote/remoteControlUiModel.js";
+import { getStageLocalCursorAnchor, toRemoteMousePosition, toStageLocalCursorPoint } from "../src/remote/remoteControlUiModel.js";
 
 describe("toRemoteMousePosition", () => {
   it("maps against the active (primary) video, not the first hidden tile", () => {
@@ -43,6 +43,49 @@ describe("toRemoteMousePosition", () => {
 
     expect(result.surfaceWidth).toBe(1600);
     expect(result.surfaceHeight).toBe(1200);
+  });
+});
+
+describe("toStageLocalCursorPoint", () => {
+  it("returns stage-local coordinates when the video fills the stage", () => {
+    const stage = document.createElement("div");
+    stage.getBoundingClientRect = () => new DOMRect(0, 0, 1000, 500);
+    const video = document.createElement("video");
+    defineVideoSize(video, 2000, 1000);
+    stage.append(video);
+
+    expect(toStageLocalCursorPoint(stage, 250, 125)).toEqual({ x: 250, y: 125 });
+  });
+
+  it("pins the arrow to the picture edge when the pointer is inside the letterbox bar", () => {
+    const stage = document.createElement("div");
+    stage.getBoundingClientRect = () => new DOMRect(0, 0, 1000, 500);
+    const video = document.createElement("video");
+    // 4:4 的画面放进 2:1 的框：左右各 250px 黑边，内容区 x∈[250,750]。
+    defineVideoSize(video, 1000, 1000);
+    stage.append(video);
+
+    expect(toStageLocalCursorPoint(stage, 10, 200)).toEqual({ x: 250, y: 200 });
+    expect(toStageLocalCursorPoint(stage, 500, 250)).toEqual({ x: 500, y: 250 });
+  });
+
+  it("returns null before the stage has usable dimensions", () => {
+    const stage = document.createElement("div");
+    stage.getBoundingClientRect = () => new DOMRect(0, 0, 0, 0);
+
+    expect(toStageLocalCursorPoint(stage, 10, 10)).toBeNull();
+  });
+});
+
+describe("getStageLocalCursorAnchor", () => {
+  it("anchors at the center of the letterboxed picture, not the stage", () => {
+    const stage = document.createElement("div");
+    stage.getBoundingClientRect = () => new DOMRect(0, 0, 1000, 500);
+    const video = document.createElement("video");
+    defineVideoSize(video, 1000, 1000);
+    stage.append(video);
+
+    expect(getStageLocalCursorAnchor(stage)).toEqual({ x: 500, y: 250 });
   });
 });
 
