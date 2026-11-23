@@ -130,6 +130,26 @@ function writeInputModePref(mode: RemoteInputMode): void {
   }
 }
 
+// 本地补偿指针开关：被控端开「隐私屏保」时捕获管线不合成指针，画面上没有鼠标位置。
+// 默认打开（用本地画的那个顶上）；如果哪天被控端又能自己画了，可以关掉它避免两个指针。
+const LOCAL_CURSOR_STORAGE_KEY = "uurc.localCursor";
+
+function readLocalCursorPref(): boolean {
+  try {
+    return globalThis.localStorage?.getItem(LOCAL_CURSOR_STORAGE_KEY) !== "false";
+  } catch {
+    return true;
+  }
+}
+
+function writeLocalCursorPref(visible: boolean): void {
+  try {
+    globalThis.localStorage?.setItem(LOCAL_CURSOR_STORAGE_KEY, visible ? "true" : "false");
+  } catch {
+    // 写不进去也不影响本次会话。
+  }
+}
+
 // 把底层/协议级英文错误映射成用户能看懂、带“怎么办”的中文；未知错误原样返回。
 function toFriendlyError(message: string): string {
   const text = message || "";
@@ -194,6 +214,7 @@ export function useRemoteControlController() {
   const [autoConnect, setAutoConnect] = useState<boolean>(readAutoConnectPref);
   const [inputMode, setInputMode] = useState<RemoteInputMode>(readInputModePref);
   const [remoteStageViewMode, setRemoteStageViewMode] = useState<RemoteStageViewMode>("fit");
+  const [localCursorVisible, setLocalCursorVisible] = useState<boolean>(readLocalCursorPref);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [signalServerIndex, setSignalServerIndex] = useState(0);
   const [error, setError] = useState("");
@@ -1642,6 +1663,7 @@ export function useRemoteControlController() {
     remoteStageFrameRef,
     isFullscreen,
     remoteStageViewMode,
+    localCursorVisible,
     remoteVideoCount,
     remoteVideoSources,
     remoteVideoStreams,
@@ -1697,6 +1719,12 @@ export function useRemoteControlController() {
     onRemoteStageWheel: handleRemoteStageWheel,
     onRemoteShortcut: handleRemoteShortcut,
     onRemoteVideoSourceChange: setSelectedRemoteVideoId,
+    onToggleLocalCursor: () => {
+      setLocalCursorVisible((visible) => {
+        writeLocalCursorPref(!visible);
+        return !visible;
+      });
+    },
     onRemoteVideoSample: handleRemoteVideoSample,
     onReadLocalClipboard: () => void handleReadLocalClipboard(),
     onReturnToDevices: () => void handleReturnToDevices(),

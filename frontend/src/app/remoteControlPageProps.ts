@@ -142,6 +142,9 @@ export interface RemoteControlPageProps {
   onRemoteStagePointerUp: (event: PointerEvent<HTMLDivElement>) => void;
   onRemoteStageWheel: (event: WheelEvent<HTMLDivElement>) => void;
   onRemoteShortcut: (shortcut: RemoteShortcut) => void;
+  // 被控端开隐私屏保时捕获管线不合成指针，这个开关决定是否用本地补画的那个顶上。
+  localCursorVisible: boolean;
+  onToggleLocalCursor: () => void;
   onRemoteVideoSourceChange: (videoId: string) => void;
   onRemoteVideoSample: (videoId: string, sample: BrowserRemoteVideoElementSample) => void;
   onReadLocalClipboard: () => void;

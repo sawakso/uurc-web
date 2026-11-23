@@ -1,11 +1,14 @@
 import { Monitor } from "lucide-react";
+import { useEffect, useRef, type PointerEvent as ReactPointerEvent } from "react";
 
 import type { RemoteControlPageProps } from "../app/remoteControlPageProps.js";
+import { getStageLocalCursorAnchor, toStageLocalCursorPoint } from "../remote/remoteControlUiModel.js";
 import { RemoteVideoTile } from "./RemoteVideoTile.js";
 
 export function RemoteControlStage({
   hasRemoteVideo,
   inputControlActive,
+  localCursorVisible,
   onRemoteStageKeyDown,
   onRemoteStageKeyUp,
   onRemoteStageBlur,
@@ -30,6 +33,7 @@ export function RemoteControlStage({
   RemoteControlPageProps,
   | "hasRemoteVideo"
   | "inputControlActive"
+  | "localCursorVisible"
   | "onRemoteStageKeyDown"
   | "onRemoteStageKeyUp"
   | "onRemoteStageBlur"
@@ -51,6 +55,43 @@ export function RemoteControlStage({
   | "selectedDevice"
   | "stageStatusLabel"
 >) {
+  // 被控端开「隐私屏保」时走的是另一套捕获管线，那套不把指针合成进画面，
+  // 于是画面上只剩浏览器自己的黑色十字，看不到鼠标到底在哪。
+  // 这里在本地补一个指针（橙紫渐变，和原来被控端画的那个同一个观感），
+  // 位置按 toStageLocalCursorPoint 换算——和真正发出去的绝对坐标同一套规则，
+  // 所以它落在远端指针本该在的地方，黑边里也会贴边。
+  //
+  // 直接用 ref 写 transform，不走 setState：pointermove 频率很高，走 React 会让整个
+  // 远控页每移动一次就重渲染一遍，手机上会明显掉帧。
+  const localCursorRef = useRef<HTMLSpanElement | null>(null);
+
+  function moveLocalCursor(stage: HTMLDivElement, clientX: number, clientY: number) {
+    const node = localCursorRef.current;
+    if (!node) return;
+    const point = toStageLocalCursorPoint(stage, clientX, clientY);
+    if (!point) return;
+    node.style.transform = `translate3d(${point.x}px, ${point.y}px, 0)`;
+    node.style.opacity = "1";
+  }
+
+  // 刚连上时先摆到画面中心：不动鼠标也能看见指针在哪。切画面源后重摆一次，
+  // 因为不同屏的分辨率不同，内容区会跟着变。
+  useEffect(() => {
+    const node = localCursorRef.current;
+    // 箭头的父节点就是 stage 本身，省得为了拿 DOM 再把 ref 往下传一层。
+    const stage = node?.parentElement;
+    if (!node || !stage) return;
+    const anchor = getStageLocalCursorAnchor(stage as HTMLDivElement);
+    if (!anchor) return;
+    node.style.transform = `translate3d(${anchor.x}px, ${anchor.y}px, 0)`;
+    node.style.opacity = "1";
+  }, [inputControlActive, hasRemoteVideo, localCursorVisible, primaryRemoteVideoId]);
+
+  function syncLocalCursor(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!inputControlActive || !hasRemoteVideo || !localCursorVisible) return;
+    moveLocalCursor(event.currentTarget, event.clientX, event.clientY);
+  }
+
   return (
     <div
       ref={remoteStageRef}
@@ -62,8 +103,14 @@ export function RemoteControlStage({
       onKeyUp={onRemoteStageKeyUp}
       onBlur={onRemoteStageBlur}
       onPaste={onRemoteStagePaste}
-      onPointerDown={onRemoteStagePointerDown}
-      onPointerMove={onRemoteStagePointerMove}
+      onPointerDown={(event) => {
+        onRemoteStagePointerDown(event);
+        syncLocalCursor(event);
+      }}
+      onPointerMove={(event) => {
+        onRemoteStagePointerMove(event);
+        syncLocalCursor(event);
+      }}
       onPointerUp={onRemoteStagePointerUp}
       onPointerCancel={onRemoteStagePointerCancel}
       onWheel={onRemoteStageWheel}
@@ -125,6 +172,27 @@ export function RemoteControlStage({
           </div>
         </>
       )}
+
+      {/* 本地补偿指针：只在「已解锁输入 + 有画面 + 开关打开」时挂载。 */}
+      {inputControlActive && hasRemoteVideo && localCursorVisible ? (
+        <span ref={localCursorRef} className="stage-local-cursor" aria-hidden="true">
+          <svg viewBox="0 0 20 20" width="20" height="20" focusable="false">
+            <defs>
+              <linearGradient id="stage-local-cursor-fill" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stopColor="#ff9a2e" />
+                <stop offset="100%" stopColor="#8a5cff" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M0 0 V15 L4 11.3 L6.6 17 L9 15.8 L6.4 10.2 H11 Z"
+              fill="url(#stage-local-cursor-fill)"
+              stroke="#1b1b1b"
+              strokeWidth="1.2"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </span>
+      ) : null}
     </div>
   );
 }

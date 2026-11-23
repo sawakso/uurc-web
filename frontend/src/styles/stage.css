@@ -17,6 +17,26 @@
   user-select: none;
 }
 
+/* 本地补偿指针（被控端开隐私屏保时不合成指针，用它顶上）。
+   注意这里不动系统光标：黑色十字继续保留，两者并存。
+   变换由 JS 在 pointermove 里直接写，不走 React state。 */
+.stage-local-cursor {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 3;
+  display: block;
+  width: 20px;
+  height: 20px;
+  opacity: 0;
+  pointer-events: none;
+  /* 先挪出可视区，避免首帧在左上角闪一下再跳到位。 */
+  transform: translate3d(-40px, -40px, 0);
+  transition: opacity 120ms ease;
+  will-change: transform;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.55));
+}
+
 /* 物理按键模式下焦点就在画面上，它只是一个键盘落点，不该出现焦点框。 */
 .remote-stage:focus,
 .remote-stage:focus-visible {

@@ -359,6 +359,54 @@ export function toRemoteMousePosition(event: RemotePointerLike): { absX: number;
   };
 }
 
+/**
+ * 解析 stage 里「画面内容实际占用的矩形」。
+ *
+ * 视频是 object-fit: contain，画面不铺满 stage，四周会有黑边；远端指针只可能落在内容区内，
+ * 所以本地补画的指针必须按这个矩形换算，才能压在远端指针真正所在的位置上。
+ * 返回 null 表示尺寸还没出来（画面未解码 / stage 未布局），调用方应跳过这次更新。
+ */
+function resolveStageMediaRect(stage: HTMLDivElement): { stageRect: DOMRect; rendered: DOMRect } | null {
+  const stageRect = stage.getBoundingClientRect();
+  const video = stage.querySelector<HTMLVideoElement>('video[data-active="true"]') ?? stage.querySelector("video");
+  const videoWidth = video?.videoWidth || Math.round(stageRect.width);
+  const videoHeight = video?.videoHeight || Math.round(stageRect.height);
+  if (!videoWidth || !videoHeight || !stageRect.width || !stageRect.height) return null;
+  return { stageRect, rendered: getContainedMediaRect(stageRect, videoWidth, videoHeight) };
+}
+
+/**
+ * 把浏览器指针位置换算成 stage 内的本地坐标（px，相对 stage 左上角）。
+ * 与 toRemoteMousePosition 用同一套 clamp 规则：指针落在黑边里时贴到画面边缘，
+ * 和远端指针实际被钳制到的位置一致。
+ */
+export function toStageLocalCursorPoint(
+  stage: HTMLDivElement,
+  clientX: number,
+  clientY: number,
+): { x: number; y: number } | null {
+  const layout = resolveStageMediaRect(stage);
+  if (!layout) return null;
+  const { stageRect, rendered } = layout;
+  const relX = clamp((clientX - rendered.left) / rendered.width, 0, 1);
+  const relY = clamp((clientY - rendered.top) / rendered.height, 0, 1);
+  return {
+    x: rendered.left - stageRect.left + relX * rendered.width,
+    y: rendered.top - stageRect.top + relY * rendered.height,
+  };
+}
+
+/** 画面内容区的正中心（stage 内坐标）：指针还没动过时先摆在这里，保证"一直看得见"。 */
+export function getStageLocalCursorAnchor(stage: HTMLDivElement): { x: number; y: number } | null {
+  const layout = resolveStageMediaRect(stage);
+  if (!layout) return null;
+  const { stageRect, rendered } = layout;
+  return {
+    x: rendered.left - stageRect.left + rendered.width / 2,
+    y: rendered.top - stageRect.top + rendered.height / 2,
+  };
+}
+
 export function toRemoteMouseButton(button: number): StreamerMouseButtonKind {
   if (button === 1) return "tertiary";
   if (button === 2) return "secondary";

@@ -431,6 +431,29 @@
   line-height: 1.2;
 }
 
+/* 本地指针开关：和画面源列表同一栏，但语义是“补偿显示”，所以单独一行并压低视觉权重。 */
+.video-source-toggle {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.video-source-toggle button {
+  align-self: flex-start;
+  min-height: 32px;
+}
+
+.video-source-toggle button[aria-pressed="true"] {
+  border-color: var(--accent, #6b8afd);
+}
+
+.video-source-toggle small {
+  color: var(--text-muted);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
 .video-source-list button[aria-pressed="true"] {
   border-color: var(--accent);
   background: var(--accent-soft);

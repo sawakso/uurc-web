@@ -3,10 +3,15 @@ import { Monitor } from "lucide-react";
 import type { RemoteControlPageProps } from "../app/remoteControlPageProps.js";
 
 export function RemoteVideoSourcePanel({
+  localCursorVisible,
+  onToggleLocalCursor,
   onRemoteVideoSourceChange,
   primaryRemoteVideoId,
   remoteVideoSources,
-}: Pick<RemoteControlPageProps, "onRemoteVideoSourceChange" | "primaryRemoteVideoId" | "remoteVideoSources">) {
+}: Pick<
+  RemoteControlPageProps,
+  "localCursorVisible" | "onToggleLocalCursor" | "onRemoteVideoSourceChange" | "primaryRemoteVideoId" | "remoteVideoSources"
+>) {
   const hasSources = remoteVideoSources.length > 0;
 
   return (
@@ -36,6 +41,14 @@ export function RemoteVideoSourcePanel({
         ) : (
           <span>暂无画面源</span>
         )}
+      </div>
+      <div className="video-source-toggle">
+        <button type="button" aria-pressed={localCursorVisible} onClick={onToggleLocalCursor}>
+          本地指针：{localCursorVisible ? "开" : "关"}
+        </button>
+        <small>
+          被控端开「隐私屏保」后不会把鼠标画进画面，这里用本地指针补上；画面里本来就有指针时可以关掉。
+        </small>
       </div>
     </section>
   );
