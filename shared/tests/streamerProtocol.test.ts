@@ -86,6 +86,7 @@ import {
   buildStreamerSoacPayload,
   buildStreamerRtcConfiguration,
   buildStreamerBrowserDeviceCapability,
+  STREAMER_MAX_BROWSER_DISPLAY_SLOTS,
   classifyStreamerConnectionPath,
   isStreamerDataChannelLabel,
   analyzeRemoteSignalReadiness,
@@ -229,6 +230,32 @@ describe("streamer protocol constants", () => {
         },
       }),
     ).toBe('{"control_id":"control-1","device_capability":{"video_codec_capability":[{"video_codec":3}]}}');
+  });
+
+  it("declares one display slot by default and more only when asked", () => {
+    // 默认保持历史行为：只声明 1 个槽位，受控端就只推主屏一路，不多占带宽。
+    expect(buildStreamerBrowserDeviceCapability().display_info).toEqual([
+      { id: 0, fps: 60, type: 0, hdr: -1 },
+    ]);
+
+    // 多屏实验：声明 2 个槽位，id 从 0 递增，其余字段沿用模板。
+    expect(buildStreamerBrowserDeviceCapability(2).display_info).toEqual([
+      { id: 0, fps: 60, type: 0, hdr: -1 },
+      { id: 1, fps: 60, type: 0, hdr: -1 },
+    ]);
+
+    // 槽位上限跟 addTransceiver 的视频轨上限对齐，越界与非法值都被夹住。
+    expect(buildStreamerBrowserDeviceCapability(99).display_info).toHaveLength(
+      STREAMER_MAX_BROWSER_DISPLAY_SLOTS,
+    );
+    expect(buildStreamerBrowserDeviceCapability(0).display_info).toHaveLength(1);
+    expect(buildStreamerBrowserDeviceCapability(Number.NaN).display_info).toHaveLength(1);
+
+    // 走 control 请求时也要带上，否则声明的槽位传不到受控端。
+    const withSlots = JSON.parse(
+      buildStreamerControlStreamerDataJson({ controlId: "control-1", displayCount: 3 }),
+    );
+    expect(withSlots.device_capability.display_info.map((item: { id: number }) => item.id)).toEqual([0, 1, 2]);
   });
 
   it("normalizes App control ack into browser WebRTC ICE configuration", () => {

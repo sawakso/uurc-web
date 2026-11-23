@@ -1302,9 +1302,10 @@ describe("BrowserRemoteSession", () => {
       expect.arrayContaining([
         expect.objectContaining({
           kind: "signal",
-          summary: "记录受控端显示器",
+          summary: "受控端上报 1 块屏",
           details: {
-            displayId: 1,
+            event: "forward_setting",
+            displayIds: [1],
           },
         }),
         expect.objectContaining({
@@ -1313,6 +1314,56 @@ describe("BrowserRemoteSession", () => {
           details: expect.objectContaining({
             remoteDisplayId: 1,
           }),
+        }),
+      ]),
+    );
+  });
+
+  it("records every display the controlled side reports, not just the first", async () => {
+    const api = new FakeRemoteApi();
+    const peer = new FakePeerConnection();
+    const session = new BrowserRemoteSession({
+      api,
+      createPeerConnection: () => peer,
+      now: () => 3200,
+    });
+    await session.start({
+      appControlId: "control-1",
+      appDataBase64: "Cg==",
+      streamerData: "{}",
+      targetPlatform: 1,
+    });
+
+    await session.applySignalEvents([
+      {
+        id: 21,
+        direction: "inbound",
+        event: "device_capability",
+        receivedAt: "2026-05-15T00:00:03.000Z",
+        payload: [
+          {
+            client_id: "controlled-1",
+            data: {
+              device_capability: {
+                display_info: [
+                  { id: 0, fps: 60, type: 0, hdr: -1 },
+                  { id: 2, fps: 60, type: 0, hdr: -1 },
+                ],
+              },
+            },
+          },
+        ],
+      },
+    ]);
+
+    // 输入仍发往主屏（第一块），但第二块屏的存在必须留痕，否则无从判断多屏能不能做。
+    expect(session.getState().remoteDisplayId).toBe(0);
+    expect(session.getState().debugEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "signal",
+          summary: "受控端上报 2 块屏",
+          details: { event: "device_capability", displayIds: [0, 2] },
         }),
       ]),
     );

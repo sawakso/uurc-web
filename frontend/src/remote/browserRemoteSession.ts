@@ -1189,14 +1189,26 @@ export class BrowserRemoteSession {
   }
 
   private applyRemoteDisplayCapability(event: RemoteSignalGatewayEvent): void {
-    const displayId = extractRemoteDisplayId(event.payload);
+    const displayIds = extractRemoteDisplayIds(event.payload);
+    if (displayIds.length === 0) {
+      // forward_setting 也会带非显示器类设置项；只记键名，方便判断还能做哪些设置，不落值。
+      this.recordDebugEvent("signal", `${event.event}（无显示器信息）`, {
+        keys: collectPayloadKeys(event.payload),
+      });
+      return;
+    }
+    // 这条事件决定“受控端自报有几块屏”，是判断多屏能否实现的关键证据，每次都要留痕。
+    this.recordDebugEvent("signal", `受控端上报 ${displayIds.length} 块屏`, {
+      event: event.event,
+      displayIds,
+    });
+    const displayId = displayIds[0];
     if (displayId === undefined || displayId === this.remoteDisplayId) return;
     this.remoteDisplayId = displayId;
     this.setState({
       ...this.state,
       remoteDisplayId: displayId,
     });
-    this.recordDebugEvent("signal", "记录受控端显示器", { displayId });
   }
 }
 
@@ -1397,8 +1409,9 @@ function summarizeSignalPayload(payload: unknown): unknown {
   });
 }
 
-function extractRemoteDisplayId(payload: unknown): number | undefined {
+function extractRemoteDisplayIds(payload: unknown): number[] {
   const payloads = Array.isArray(payload) ? payload : [payload];
+  const ids: number[] = [];
   for (const item of payloads) {
     const record = asRecord(item);
     const data = asRecord(record?.data) ?? record;
@@ -1408,10 +1421,30 @@ function extractRemoteDisplayId(payload: unknown): number | undefined {
     for (const display of displayInfo) {
       const displayRecord = asRecord(display);
       const id = displayRecord ? numberValue(displayRecord.id) : undefined;
-      if (id !== undefined) return id;
+      if (id !== undefined && !ids.includes(id)) ids.push(id);
     }
   }
-  return undefined;
+  return ids;
+}
+
+// 只取键名（含一层嵌套），用于排查 forward_setting 到底带了哪些设置项，避免把值（可能含令牌）写进调试日志。
+function collectPayloadKeys(payload: unknown, depth = 0): string[] {
+  const payloads = Array.isArray(payload) ? payload : [payload];
+  const keys = new Set<string>();
+  for (const item of payloads) {
+    const record = asRecord(item);
+    if (!record) continue;
+    for (const [key, value] of Object.entries(record)) {
+      keys.add(key);
+      if (depth < 1) {
+        const nested = asRecord(value);
+        if (nested) {
+          for (const nestedKey of Object.keys(nested)) keys.add(`${key}.${nestedKey}`);
+        }
+      }
+    }
+  }
+  return [...keys].slice(0, 40);
 }
 
 function extractCandidateType(candidate: unknown): string | undefined {

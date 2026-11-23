@@ -5,6 +5,7 @@ import { useMatch, useNavigate } from "react-router";
 import {
   STREAMER_CONTROL_CONNECT_TYPES,
   STREAMER_DATA_CHANNEL_LABELS,
+  STREAMER_MAX_BROWSER_DISPLAY_SLOTS,
   analyzeRemoteSignalReadiness,
   buildDefaultStreamerConnectOptionsBase64,
   buildStreamerControlStreamerDataJson,
@@ -106,6 +107,23 @@ function readAutoConnectPref(): boolean {
     return globalThis.localStorage?.getItem("uurc.autoConnect") !== "false";
   } catch {
     return true;
+  }
+}
+
+// 多屏实验开关：声明几个显示器槽位，受控端就可能按屏推几路视频轨。
+// 默认 1（与历史行为一致，不多占带宽）；想试多屏时在控制台执行
+//   localStorage.setItem("uurc.displaySlots", "2") 然后重连。
+// 想关掉：localStorage.removeItem("uurc.displaySlots")。
+const DISPLAY_SLOTS_STORAGE_KEY = "uurc.displaySlots";
+
+function readDisplaySlotsPref(): number {
+  try {
+    const raw = globalThis.localStorage?.getItem(DISPLAY_SLOTS_STORAGE_KEY);
+    const parsed = raw ? Number.parseInt(raw, 10) : 1;
+    if (!Number.isFinite(parsed)) return 1;
+    return Math.max(1, Math.min(STREAMER_MAX_BROWSER_DISPLAY_SLOTS, parsed));
+  } catch {
+    return 1;
   }
 }
 
@@ -692,13 +710,17 @@ export function useRemoteControlController() {
     const controlConnectType = roomJoinContext?.kind === "remote_assistance"
       ? STREAMER_CONTROL_CONNECT_TYPES.ControlConnectType_Assistance
       : STREAMER_CONTROL_CONNECT_TYPES.ControlConnectType_Normal;
+    const displaySlots = readDisplaySlotsPref();
     const state = await session.start({
       appControlId,
       appDataBase64: buildDefaultStreamerConnectOptionsBase64({
         deviceId: authStatus.deviceId,
         controlConnectType,
       }),
-      streamerData: buildStreamerControlStreamerDataJson({ controlId: appControlId }),
+      streamerData: buildStreamerControlStreamerDataJson({
+        controlId: appControlId,
+        displayCount: displaySlots,
+      }),
       forceRelay: options.forceRelay ?? (connectionRouteMode === "relay" ? true : undefined),
       gzipSdp: sdpTransportMode === "gzip",
       targetPlatform: resolveTargetPlatform(),

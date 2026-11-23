@@ -355,6 +355,8 @@ export interface BuildStreamerControlStreamerDataJsonInput {
   controlId: string;
   iceId?: string;
   deviceCapability?: unknown;
+  /** 主控端声明的显示器槽位数，见 buildStreamerBrowserDeviceCapability。 */
+  displayCount?: number;
 }
 
 export interface StreamerDisplayInfoCapability {
@@ -401,9 +403,24 @@ export const STREAMER_DEFAULT_BROWSER_DEVICE_CAPABILITY: StreamerDeviceCapabilit
   ice_id: "",
 };
 
-export function buildStreamerBrowserDeviceCapability(): StreamerDeviceCapability {
+// 视频轨上限见 browserRemoteSession 的 addTransceiver 循环（5 路），多声明槽位没有意义。
+export const STREAMER_MAX_BROWSER_DISPLAY_SLOTS = 5;
+
+/**
+ * 浏览器主控端的设备能力。
+ *
+ * `display_info` 是「主控端能同时显示几块屏」的槽位声明：受控端按槽位数量决定推几路视频轨。
+ * 只要 1 个槽位（默认），多屏被控端也只会推主屏那一路——网页端因此永远只能看到一块屏。
+ * 声明多个槽位后，受控端可能按屏各推一路，界面上的「画面源」面板就能逐路切换。
+ */
+export function buildStreamerBrowserDeviceCapability(displayCount = 1): StreamerDeviceCapability {
+  const slotCount = Math.max(
+    1,
+    Math.min(STREAMER_MAX_BROWSER_DISPLAY_SLOTS, Math.floor(displayCount) || 1),
+  );
+  const template = STREAMER_DEFAULT_BROWSER_DEVICE_CAPABILITY.display_info[0];
   return {
-    display_info: STREAMER_DEFAULT_BROWSER_DEVICE_CAPABILITY.display_info.map((item) => ({ ...item })),
+    display_info: Array.from({ length: slotCount }, (_, index) => ({ ...template, id: index })),
     video_codec_capability: STREAMER_DEFAULT_BROWSER_DEVICE_CAPABILITY.video_codec_capability.map((item) => ({
       ...item,
     })),
@@ -419,7 +436,7 @@ export function buildStreamerControlStreamerDataJson(input: BuildStreamerControl
 }
 
 function buildStreamerControlDeviceCapability(input: BuildStreamerControlStreamerDataJsonInput): unknown {
-  const capability = input.deviceCapability ?? buildStreamerBrowserDeviceCapability();
+  const capability = input.deviceCapability ?? buildStreamerBrowserDeviceCapability(input.displayCount ?? 1);
   if (!input.iceId) return capability;
 
   const record = asRecord(capability);
