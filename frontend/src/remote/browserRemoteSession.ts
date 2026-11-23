@@ -15,6 +15,7 @@ import {
   decodeStreamerControlMessage,
   encodeStreamerEchoResponseMessage,
   encodeStreamerEchoRequestMessage,
+  encodeStreamerFlipScreenRequest,
   encodeStreamerInputMessage,
   encodeStreamerTextMessage,
   formatStreamerSignalControlFailure,
@@ -230,6 +231,7 @@ export interface BrowserRemoteSessionState {
   inboundVideo?: BrowserRemoteInboundVideoStats;
   remoteTrackCount: number;
   remoteDisplayId?: number;
+  remoteDisplayIds?: number[];
   remoteInputDisplayId?: number;
   selectedCandidatePair?: BrowserRemoteSelectedCandidatePair;
   stage: "idle" | "controlled" | "offered" | "connected";
@@ -269,6 +271,8 @@ export class BrowserRemoteSession {
   private remoteStream: MediaStream | null = null;
   private remoteDisplayId: number | undefined;
   private remoteInputDisplayId: number | undefined;
+  // 受控端自报的显示器 id 列表，顺序即它的屏幕顺序；用来把“第 N 路画面”映射成 display_id。
+  private remoteDisplayIds: number[] = [];
   private sequence = 1;
   private readonly heldKeyboardValues = new Set<string | number>();
   private readonly heldMouseButtons = new Set<StreamerMouseButtonKind | number>();
@@ -347,6 +351,7 @@ export class BrowserRemoteSession {
     this.remoteStream = null;
     this.remoteDisplayId = undefined;
     this.remoteInputDisplayId = undefined;
+    this.remoteDisplayIds = [];
     this.sequence = 1;
     this.heldKeyboardValues.clear();
     this.heldMouseButtons.clear();
@@ -483,6 +488,34 @@ export class BrowserRemoteSession {
     if (input.action === "keyboardPress") this.heldKeyboardValues.add(input.value);
     else if (input.action === "keyboardRelease") this.heldKeyboardValues.delete(input.value);
     this.sendInputData(this.buildKeyboardInput(input));
+  }
+
+  /**
+   * 请求受控端切换正在捕获的屏幕（官方客户端里是 Ctrl+Alt+←/→）。
+   * 走 control 通道的 rpc_request 信封；被控端不认这条请求时通常只是忽略，
+   * 不会影响已有的画面与输入，所以失败是安全的。
+   */
+  sendFlipScreen(direction = 0): void {
+    const label = STREAMER_DATA_CHANNEL_LABELS.control;
+    const channel = this.dataChannels.get(label);
+    if (!channel || channel.readyState !== "open") {
+      this.recordDebugEvent("data_send", "切屏失败：控制通道未就绪", {
+        label,
+        readyState: channel?.readyState,
+      });
+      return;
+    }
+    const sequence = this.sequence;
+    const timestampSeconds = this.streamerTimestampSeconds();
+    this.sequence += 1;
+    this.sendDataChannel(
+      label,
+      encodeStreamerFlipScreenRequest({ sequence, timestampMs: timestampSeconds, direction }),
+      {
+        summary: "请求切换捕获屏幕",
+        details: { sequence, timestampSeconds, direction, targetPlatform: this.targetPlatform },
+      },
+    );
   }
 
   // 直接上屏一段字符(text_input)。桌面被控端打字用它替代逐键 kbd_press，避免字母连发；
@@ -1203,11 +1236,43 @@ export class BrowserRemoteSession {
       displayIds,
     });
     const displayId = displayIds[0];
-    if (displayId === undefined || displayId === this.remoteDisplayId) return;
+    const idListChanged =
+      displayIds.length !== this.remoteDisplayIds.length ||
+      displayIds.some((value, index) => value !== this.remoteDisplayIds[index]);
+    if (idListChanged) {
+      this.remoteDisplayIds = [...displayIds];
+    }
+    if (displayId === undefined || displayId === this.remoteDisplayId) {
+      if (idListChanged) this.setState({ ...this.state, remoteDisplayIds: this.remoteDisplayIds });
+      return;
+    }
     this.remoteDisplayId = displayId;
     this.setState({
       ...this.state,
       remoteDisplayId: displayId,
+      remoteDisplayIds: this.remoteDisplayIds,
+    });
+  }
+
+  /**
+   * 把键鼠输入定向到第 index 路画面（多屏用）。
+   * 受控端报过 display_info 就用它的 id；没报过时按“第几路 = 第几块屏”兜底，
+   * 因为推流顺序通常就是屏幕顺序。传 0 且没有 id 信息时等于回到默认（不额外带 display_id）。
+   */
+  selectInputDisplayForIndex(index: number): void {
+    const known = this.remoteDisplayIds;
+    const fromList = known[index];
+    const nextInputDisplayId = fromList ?? (known.length === 0 && index === 0 ? undefined : index);
+    if (nextInputDisplayId === this.remoteInputDisplayId) return;
+    this.remoteInputDisplayId = nextInputDisplayId;
+    this.setState({
+      ...this.state,
+      remoteInputDisplayId: nextInputDisplayId,
+    });
+    this.recordDebugEvent("data_recv", "切换输入目标屏", {
+      sourceIndex: index,
+      inputDisplayId: nextInputDisplayId,
+      knownDisplayIds: known,
     });
   }
 }

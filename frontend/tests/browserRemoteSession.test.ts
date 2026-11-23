@@ -22,6 +22,7 @@ import {
   buildStreamerMouseScrollInputMessage,
   encodeStreamerEchoResponseMessage,
   encodeStreamerEchoRequestMessage,
+  encodeStreamerFlipScreenRequest,
   encodeStreamerInputMessage,
   encodeStreamerTextMessage,
 } from "@uurc/shared/streamerProtocol";
@@ -1331,7 +1332,8 @@ describe("BrowserRemoteSession", () => {
       appControlId: "control-1",
       appDataBase64: "Cg==",
       streamerData: "{}",
-      targetPlatform: 1,
+      // 平台 2 = 移动端：走 App/SendToRom 那条 proto 线路，display_id 才会随输入带出去。
+      targetPlatform: 2,
     });
 
     await session.applySignalEvents([
@@ -1356,8 +1358,9 @@ describe("BrowserRemoteSession", () => {
       },
     ]);
 
-    // 输入仍发往主屏（第一块），但第二块屏的存在必须留痕，否则无从判断多屏能不能做。
+    // 输入默认发往主屏（第一块），但第二块屏的存在必须留痕，否则无从判断多屏能不能做。
     expect(session.getState().remoteDisplayId).toBe(0);
+    expect(session.getState().remoteDisplayIds).toEqual([0, 2]);
     expect(session.getState().debugEvents).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -1365,6 +1368,47 @@ describe("BrowserRemoteSession", () => {
           summary: "受控端上报 2 块屏",
           details: { event: "device_capability", displayIds: [0, 2] },
         }),
+      ]),
+    );
+
+    // 选中第二路画面后，键鼠必须跟着落到第二块屏，否则只能看不能操作。
+    session.selectInputDisplayForIndex(1);
+    session.sendKeyboardInput({ action: "keyboardPress", value: "A" });
+
+    expect(session.getState().remoteInputDisplayId).toBe(2);
+    expect(peer.channels.get(STREAMER_DATA_CHANNEL_LABELS.control)?.sent).toEqual([
+      encodeStreamerInputMessage({
+        sequence: 1,
+        timestampMs: 3,
+        inputMessage: buildStreamerKeyboardInputMessage({ action: "keyboardPress", value: "A" }),
+        displayId: 2,
+      }),
+    ]);
+  });
+
+  it("sends the flip-screen rpc on the control channel", async () => {
+    const api = new FakeRemoteApi();
+    const peer = new FakePeerConnection();
+    const session = new BrowserRemoteSession({
+      api,
+      createPeerConnection: () => peer,
+      now: () => 3200,
+    });
+    await session.start({
+      appControlId: "control-1",
+      appDataBase64: "Cg==",
+      streamerData: "{}",
+      targetPlatform: 1,
+    });
+
+    session.sendFlipScreen();
+
+    expect(peer.channels.get(STREAMER_DATA_CHANNEL_LABELS.control)?.sent).toEqual([
+      encodeStreamerFlipScreenRequest({ sequence: 1, timestampMs: 3 }),
+    ]);
+    expect(session.getState().debugEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "data_send", summary: "请求切换捕获屏幕" }),
       ]),
     );
   });

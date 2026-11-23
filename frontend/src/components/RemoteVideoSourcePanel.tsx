@@ -5,12 +5,18 @@ import type { RemoteControlPageProps } from "../app/remoteControlPageProps.js";
 export function RemoteVideoSourcePanel({
   displaySlots,
   onDisplaySlotsChange,
+  onFlipRemoteScreen,
   onRemoteVideoSourceChange,
   primaryRemoteVideoId,
   remoteVideoSources,
 }: Pick<
   RemoteControlPageProps,
-  "displaySlots" | "onDisplaySlotsChange" | "onRemoteVideoSourceChange" | "primaryRemoteVideoId" | "remoteVideoSources"
+  | "displaySlots"
+  | "onDisplaySlotsChange"
+  | "onFlipRemoteScreen"
+  | "onRemoteVideoSourceChange"
+  | "primaryRemoteVideoId"
+  | "remoteVideoSources"
 >) {
   const hasSources = remoteVideoSources.length > 0;
   const multiSlotRequested = displaySlots > 1;
@@ -26,7 +32,9 @@ export function RemoteVideoSourcePanel({
         </div>
         <span>{hasSources ? `${remoteVideoSources.length} 路` : "等待画面"}</span>
       </header>
-      <p>{hasSources ? "选择要显示的画面" : "连接后显示可用画面"}</p>
+      <p>
+        {!hasSources ? "连接后显示可用画面" : remoteVideoSources.length > 1 ? "键鼠会跟着发到选中的这块屏" : "选择要显示的画面"}
+      </p>
       <div className="video-source-list">
         {hasSources ? (
           remoteVideoSources.map((source) => (
@@ -37,7 +45,7 @@ export function RemoteVideoSourcePanel({
               aria-pressed={source.id === primaryRemoteVideoId}
               onClick={() => onRemoteVideoSourceChange(source.id)}
             >
-              <span>画面 {source.index + 1}</span>
+              <span>屏幕 {source.index + 1}</span>
               <small>{source.hasSignal ? source.resolution || "画面中" : "无信号"}</small>
             </button>
           ))
@@ -53,6 +61,12 @@ export function RemoteVideoSourcePanel({
           多屏 2 路
         </button>
       </div>
+      <div className="video-source-slots" role="group" aria-label="切换屏幕">
+        <button type="button" onClick={onFlipRemoteScreen}>
+          切到另一块屏（实验）
+        </button>
+      </div>
+      <small>切屏是请求受控端换捕获源；被控端不认就只是没有任何反应，不影响当前画面。</small>
       {multiSlotRequested ? (
         <small>
           {multiSlotNotHonored

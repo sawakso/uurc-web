@@ -147,6 +147,8 @@ export interface RemoteControlPageProps {
   // 改动在下一次连接生效，旧会话不会重协商。
   displaySlots: number;
   onDisplaySlotsChange: (slots: number) => void;
+  // 请求受控端切换捕获的屏幕（实验能力，被控端不认就静默无效）。
+  onFlipRemoteScreen: () => void;
   onRemoteVideoSample: (videoId: string, sample: BrowserRemoteVideoElementSample) => void;
   onReadLocalClipboard: () => void;
   onReturnToDevices: () => void;

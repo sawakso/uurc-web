@@ -940,6 +940,14 @@ export function useRemoteControlController() {
     writeDisplaySlotsPref(next);
   }
 
+  // 切画面同时切输入：否则看着第二块屏、键鼠还在第一块屏上，等于只能看不能操作。
+  function handleRemoteVideoSourceChange(videoId: string) {
+    setSelectedRemoteVideoId(videoId);
+    const index = remoteVideoStreams.findIndex((video) => video.id === videoId);
+    if (index < 0) return;
+    browserRemoteSession.current?.selectInputDisplayForIndex(index);
+  }
+
   function handleRemoteStagePointerDown(event: PointerEvent<HTMLDivElement>) {
     if (!inputControlActive || !browserRemoteSession.current) return;
     event.preventDefault();
@@ -1733,9 +1741,10 @@ export function useRemoteControlController() {
     onRemoteStagePointerUp: handleRemoteStagePointerUp,
     onRemoteStageWheel: handleRemoteStageWheel,
     onRemoteShortcut: handleRemoteShortcut,
-    onRemoteVideoSourceChange: setSelectedRemoteVideoId,
+    onRemoteVideoSourceChange: handleRemoteVideoSourceChange,
     displaySlots,
     onDisplaySlotsChange: handleDisplaySlotsChange,
+    onFlipRemoteScreen: () => browserRemoteSession.current?.sendFlipScreen(),
     onRemoteVideoSample: handleRemoteVideoSample,
     onReadLocalClipboard: () => void handleReadLocalClipboard(),
     onReturnToDevices: () => void handleReturnToDevices(),
