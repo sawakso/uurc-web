@@ -17,30 +17,6 @@
   user-select: none;
 }
 
-/* 挂上本地常驻指针时藏掉系统光标：画面上只保留一个指示，避免两个叠加。
-   （被控端只在部分画面里合成指针，靠不住，所以以本地这个为准。） */
-.remote-stage-showing-local-cursor {
-  cursor: none;
-}
-
-/* 本地常驻指针。变换由 JS 直接写 pointermove，不走 React state。 */
-.stage-local-cursor {
-  position: absolute;
-  left: 0;
-  top: 0;
-  z-index: 3;
-  display: block;
-  width: 20px;
-  height: 20px;
-  opacity: 0;
-  pointer-events: none;
-  /* 先挪出可视区，避免首帧在左上角闪一下再跳到位。 */
-  transform: translate3d(-40px, -40px, 0);
-  transition: opacity 120ms ease;
-  will-change: transform;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
-}
-
 /* 物理按键模式下焦点就在画面上，它只是一个键盘落点，不该出现焦点框。 */
 .remote-stage:focus,
 .remote-stage:focus-visible {
