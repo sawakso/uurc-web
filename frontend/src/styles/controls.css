@@ -445,29 +445,6 @@
   color: var(--warn);
 }
 
-/* 显示器路数开关：贴在同一面板底部，手机上也够大拇指点。 */
-.video-source-slots {
-  display: flex;
-  gap: 8px;
-  margin-top: 8px;
-}
-
-.video-source-slots button {
-  flex: 1;
-  min-height: 36px;
-  font-size: 13px;
-}
-
-.video-source-slots button[aria-pressed="true"] {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-
-.video-source-slots button:disabled {
-  opacity: 0.55;
-}
-
 /* 连接质量“更多指标”：默认收起的诊断信息，减少常驻信息密度。 */
 .quality-more > summary {
   cursor: pointer;

@@ -66,7 +66,6 @@ import {
   encodeStreamerDecoderCap,
   encodeStreamerEchoRequestMessage,
   encodeStreamerEchoResponseMessage,
-  encodeStreamerFlipScreenRequest,
   encodeStreamerInputMessage,
   encodeStreamerTextMessage,
   decodeStreamerControlMessage,
@@ -87,7 +86,6 @@ import {
   buildStreamerSoacPayload,
   buildStreamerRtcConfiguration,
   buildStreamerBrowserDeviceCapability,
-  STREAMER_MAX_BROWSER_DISPLAY_SLOTS,
   classifyStreamerConnectionPath,
   isStreamerDataChannelLabel,
   analyzeRemoteSignalReadiness,
@@ -231,32 +229,6 @@ describe("streamer protocol constants", () => {
         },
       }),
     ).toBe('{"control_id":"control-1","device_capability":{"video_codec_capability":[{"video_codec":3}]}}');
-  });
-
-  it("declares one display slot by default and more only when asked", () => {
-    // 默认保持历史行为：只声明 1 个槽位，受控端就只推主屏一路，不多占带宽。
-    expect(buildStreamerBrowserDeviceCapability().display_info).toEqual([
-      { id: 0, fps: 60, type: 0, hdr: -1 },
-    ]);
-
-    // 多屏实验：声明 2 个槽位，id 从 0 递增，其余字段沿用模板。
-    expect(buildStreamerBrowserDeviceCapability(2).display_info).toEqual([
-      { id: 0, fps: 60, type: 0, hdr: -1 },
-      { id: 1, fps: 60, type: 0, hdr: -1 },
-    ]);
-
-    // 槽位上限跟 addTransceiver 的视频轨上限对齐，越界与非法值都被夹住。
-    expect(buildStreamerBrowserDeviceCapability(99).display_info).toHaveLength(
-      STREAMER_MAX_BROWSER_DISPLAY_SLOTS,
-    );
-    expect(buildStreamerBrowserDeviceCapability(0).display_info).toHaveLength(1);
-    expect(buildStreamerBrowserDeviceCapability(Number.NaN).display_info).toHaveLength(1);
-
-    // 走 control 请求时也要带上，否则声明的槽位传不到受控端。
-    const withSlots = JSON.parse(
-      buildStreamerControlStreamerDataJson({ controlId: "control-1", displayCount: 3 }),
-    );
-    expect(withSlots.device_capability.display_info.map((item: { id: number }) => item.id)).toEqual([0, 1, 2]);
   });
 
   it("normalizes App control ack into browser WebRTC ICE configuration", () => {
@@ -1055,19 +1027,6 @@ describe("streamer protocol constants", () => {
       0x08, 0x01, 0x10, 0x02, 0x1a, 0x1b, 0x12, 0x09, 0x7b, 0x22, 0x73, 0x65, 0x71, 0x22, 0x3a, 0x31,
       0x7d, 0x22, 0x0e, 0x08, 0x02, 0x10, 0x01, 0x18, 0x02, 0x20, 0x02, 0x30, 0x02, 0x38, 0x02,
       0x40, 0x03,
-    ]);
-  });
-
-  it("encodes a flip-screen rpc request on the peer envelope", () => {
-    const request = encodeStreamerFlipScreenRequest({ sequence: 5, timestampMs: 7 });
-    // 08 05 / 10 07 = 序号与时间戳；AA 01 = 字段 21（rpc_request）；
-    // BA 01 = 字段 23（flip_screen_req）；末尾 00 = 空请求体（合法 protobuf）。
-    expect(Array.from(request)).toEqual([0x08, 0x05, 0x10, 0x07, 0xaa, 0x01, 0x03, 0xba, 0x01, 0x00]);
-    expect(decodeStreamerControlMessage(request).topLevelTags).toEqual([1, 2, 21]);
-
-    // 带方向时请求体里出现字段 1。
-    expect(Array.from(encodeStreamerFlipScreenRequest({ sequence: 5, timestampMs: 7, direction: 1 }))).toEqual([
-      0x08, 0x05, 0x10, 0x07, 0xaa, 0x01, 0x05, 0xba, 0x01, 0x02, 0x08, 0x01,
     ]);
   });
 

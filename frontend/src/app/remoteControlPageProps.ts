@@ -143,14 +143,6 @@ export interface RemoteControlPageProps {
   onRemoteStageWheel: (event: WheelEvent<HTMLDivElement>) => void;
   onRemoteShortcut: (shortcut: RemoteShortcut) => void;
   onRemoteVideoSourceChange: (videoId: string) => void;
-  // 显示器槽位数：1 = 只收主屏（默认）；>1 = 尝试让受控端按屏各推一路，供「画面源」面板切换。
-  // 改动在下一次连接生效，旧会话不会重协商。
-  displaySlots: number;
-  onDisplaySlotsChange: (slots: number) => void;
-  // 请求受控端切换捕获的屏幕：发的是 Ctrl+Alt+←/→ 热键，不是协议 RPC。
-  onFlipRemoteScreen: (direction: "prev" | "next") => void;
-  // Ctrl+Alt+↑，用于被 Intel 显卡驱动把画面转 90° 之后转回来。
-  onResetScreenRotation: () => void;
   onRemoteVideoSample: (videoId: string, sample: BrowserRemoteVideoElementSample) => void;
   onReadLocalClipboard: () => void;
   onReturnToDevices: () => void;

@@ -5,7 +5,6 @@ import { useMatch, useNavigate } from "react-router";
 import {
   STREAMER_CONTROL_CONNECT_TYPES,
   STREAMER_DATA_CHANNEL_LABELS,
-  STREAMER_MAX_BROWSER_DISPLAY_SLOTS,
   analyzeRemoteSignalReadiness,
   buildDefaultStreamerConnectOptionsBase64,
   buildStreamerControlStreamerDataJson,
@@ -110,30 +109,6 @@ function readAutoConnectPref(): boolean {
   }
 }
 
-// 多屏实验开关：声明几个显示器槽位，受控端就可能按屏推几路视频轨。
-// 默认 1（与历史行为一致，不多占带宽）；远控页「画面源」面板上有按钮可切到 2 路，
-// 也可以直接改 localStorage：localStorage.setItem("uurc.displaySlots", "2")，改完需重连。
-const DISPLAY_SLOTS_STORAGE_KEY = "uurc.displaySlots";
-
-function readDisplaySlotsPref(): number {
-  try {
-    const raw = globalThis.localStorage?.getItem(DISPLAY_SLOTS_STORAGE_KEY);
-    const parsed = raw ? Number.parseInt(raw, 10) : 1;
-    if (!Number.isFinite(parsed)) return 1;
-    return Math.max(1, Math.min(STREAMER_MAX_BROWSER_DISPLAY_SLOTS, parsed));
-  } catch {
-    return 1;
-  }
-}
-
-function writeDisplaySlotsPref(slots: number): void {
-  try {
-    globalThis.localStorage?.setItem(DISPLAY_SLOTS_STORAGE_KEY, String(slots));
-  } catch {
-    // 隐私模式下写不进去也无所谓，本次会话内仍按内存里的值连接。
-  }
-}
-
 // 输入方式偏好：默认 native（发物理键，由被控机自己的输入法组字，能打中文）。
 // 键名带 v2：旧版本默认存过 "text"，沿用老键会让老用户永远停在绕开输入法的那条路上。
 const INPUT_MODE_STORAGE_KEY = "uurc.inputMode.v2";
@@ -218,7 +193,6 @@ export function useRemoteControlController() {
   const [connectionRouteMode, setConnectionRouteMode] = useState<ConnectionRouteMode>("auto");
   const [autoConnect, setAutoConnect] = useState<boolean>(readAutoConnectPref);
   const [inputMode, setInputMode] = useState<RemoteInputMode>(readInputModePref);
-  const [displaySlots, setDisplaySlots] = useState<number>(readDisplaySlotsPref);
   const [remoteStageViewMode, setRemoteStageViewMode] = useState<RemoteStageViewMode>("fit");
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [signalServerIndex, setSignalServerIndex] = useState(0);
@@ -718,17 +692,13 @@ export function useRemoteControlController() {
     const controlConnectType = roomJoinContext?.kind === "remote_assistance"
       ? STREAMER_CONTROL_CONNECT_TYPES.ControlConnectType_Assistance
       : STREAMER_CONTROL_CONNECT_TYPES.ControlConnectType_Normal;
-    const displaySlots = readDisplaySlotsPref();
     const state = await session.start({
       appControlId,
       appDataBase64: buildDefaultStreamerConnectOptionsBase64({
         deviceId: authStatus.deviceId,
         controlConnectType,
       }),
-      streamerData: buildStreamerControlStreamerDataJson({
-        controlId: appControlId,
-        displayCount: displaySlots,
-      }),
+      streamerData: buildStreamerControlStreamerDataJson({ controlId: appControlId }),
       forceRelay: options.forceRelay ?? (connectionRouteMode === "relay" ? true : undefined),
       gzipSdp: sdpTransportMode === "gzip",
       targetPlatform: resolveTargetPlatform(),
@@ -931,21 +901,6 @@ export function useRemoteControlController() {
     writeInputModePref(mode);
     // 切模式后把焦点重新落到正确的落点（text=隐藏输入框，native=画面本身）并立即生效。
     focusStageInput(mode);
-  }
-
-  // 槽位数只在下次连接时进握手消息，本次会话已经协商好的视频轨不会变，所以这里只存不改。
-  function handleDisplaySlotsChange(slots: number) {
-    const next = Math.max(1, Math.min(STREAMER_MAX_BROWSER_DISPLAY_SLOTS, Math.floor(slots) || 1));
-    setDisplaySlots(next);
-    writeDisplaySlotsPref(next);
-  }
-
-  // 切画面同时切输入：否则看着第二块屏、键鼠还在第一块屏上，等于只能看不能操作。
-  function handleRemoteVideoSourceChange(videoId: string) {
-    setSelectedRemoteVideoId(videoId);
-    const index = remoteVideoStreams.findIndex((video) => video.id === videoId);
-    if (index < 0) return;
-    browserRemoteSession.current?.selectInputDisplayForIndex(index);
   }
 
   function handleRemoteStagePointerDown(event: PointerEvent<HTMLDivElement>) {
@@ -1741,11 +1696,7 @@ export function useRemoteControlController() {
     onRemoteStagePointerUp: handleRemoteStagePointerUp,
     onRemoteStageWheel: handleRemoteStageWheel,
     onRemoteShortcut: handleRemoteShortcut,
-    onRemoteVideoSourceChange: handleRemoteVideoSourceChange,
-    displaySlots,
-    onDisplaySlotsChange: handleDisplaySlotsChange,
-    onFlipRemoteScreen: (direction: "prev" | "next") => browserRemoteSession.current?.sendCaptureFlipHotkey(direction),
-    onResetScreenRotation: () => browserRemoteSession.current?.sendScreenRotationReset(),
+    onRemoteVideoSourceChange: setSelectedRemoteVideoId,
     onRemoteVideoSample: handleRemoteVideoSample,
     onReadLocalClipboard: () => void handleReadLocalClipboard(),
     onReturnToDevices: () => void handleReturnToDevices(),

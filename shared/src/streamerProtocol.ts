@@ -355,8 +355,6 @@ export interface BuildStreamerControlStreamerDataJsonInput {
   controlId: string;
   iceId?: string;
   deviceCapability?: unknown;
-  /** 主控端声明的显示器槽位数，见 buildStreamerBrowserDeviceCapability。 */
-  displayCount?: number;
 }
 
 export interface StreamerDisplayInfoCapability {
@@ -403,24 +401,9 @@ export const STREAMER_DEFAULT_BROWSER_DEVICE_CAPABILITY: StreamerDeviceCapabilit
   ice_id: "",
 };
 
-// 视频轨上限见 browserRemoteSession 的 addTransceiver 循环（5 路），多声明槽位没有意义。
-export const STREAMER_MAX_BROWSER_DISPLAY_SLOTS = 5;
-
-/**
- * 浏览器主控端的设备能力。
- *
- * `display_info` 是「主控端能同时显示几块屏」的槽位声明：受控端按槽位数量决定推几路视频轨。
- * 只要 1 个槽位（默认），多屏被控端也只会推主屏那一路——网页端因此永远只能看到一块屏。
- * 声明多个槽位后，受控端可能按屏各推一路，界面上的「画面源」面板就能逐路切换。
- */
-export function buildStreamerBrowserDeviceCapability(displayCount = 1): StreamerDeviceCapability {
-  const slotCount = Math.max(
-    1,
-    Math.min(STREAMER_MAX_BROWSER_DISPLAY_SLOTS, Math.floor(displayCount) || 1),
-  );
-  const template = STREAMER_DEFAULT_BROWSER_DEVICE_CAPABILITY.display_info[0];
+export function buildStreamerBrowserDeviceCapability(): StreamerDeviceCapability {
   return {
-    display_info: Array.from({ length: slotCount }, (_, index) => ({ ...template, id: index })),
+    display_info: STREAMER_DEFAULT_BROWSER_DEVICE_CAPABILITY.display_info.map((item) => ({ ...item })),
     video_codec_capability: STREAMER_DEFAULT_BROWSER_DEVICE_CAPABILITY.video_codec_capability.map((item) => ({
       ...item,
     })),
@@ -436,7 +419,7 @@ export function buildStreamerControlStreamerDataJson(input: BuildStreamerControl
 }
 
 function buildStreamerControlDeviceCapability(input: BuildStreamerControlStreamerDataJsonInput): unknown {
-  const capability = input.deviceCapability ?? buildStreamerBrowserDeviceCapability(input.displayCount ?? 1);
+  const capability = input.deviceCapability ?? buildStreamerBrowserDeviceCapability();
   if (!input.iceId) return capability;
 
   const record = asRecord(capability);
@@ -1090,53 +1073,6 @@ export function encodeStreamerRomMessage(input: EncodeStreamerRomMessageInput): 
 
 export function encodeStreamerControlStringMessage(inputMessage: string): Uint8Array {
   return new TextEncoder().encode(inputMessage);
-}
-
-// 外层信封字段号。数字来自受控端协议 oneof 的声明顺序：那段 oneof 前面还有
-// sequence / timestamp 两个字段，所以「表内第 n 项」的真实 tag 是 n + 2。
-// 这条换算用仓库里既有的四个 tag 交叉验证过，四个全部吻合：
-// simple_action=3、capture_change=8、rom_message=10、send_to_rom=11。
-export const STREAMER_PEER_WIRE_TAGS = {
-  simpleAction: 3,
-  screens: 7,
-  captureChange: 8,
-  romMessage: 10,
-  sendToRom: 11,
-  rpcRequest: 21,
-  rpcResponse: 22,
-} as const;
-
-// SendRpcRequest 自己也带两个前置 long 字段，同理 oneof 从 3 起算：
-// capture_setting=3 … send_video_track_req=16 … flip_screen_req=23 …（第 n 项 = n + 2）
-export const STREAMER_RPC_WIRE_TAGS = {
-  sendVideoTrackReq: 16,
-  flipScreenReq: 23,
-} as const;
-
-export interface EncodeStreamerFlipScreenRequestInput {
-  sequence: number | bigint;
-  timestampMs: number | bigint;
-  /** 方向：0 = 默认（先按被控端的默认行为发），非 0 时原样写入请求体。语义尚未实测确认。 */
-  direction?: number;
-}
-
-/**
- * 请求受控端切换捕获的屏幕，等价于官方客户端里的 Ctrl+Alt+←/→。
- * 空请求体本身是合法的 protobuf，所以 direction 为 0 时只发一个空消息。
- */
-export function encodeStreamerFlipScreenRequest(input: EncodeStreamerFlipScreenRequestInput): Uint8Array {
-  const flipBytes: number[] = [];
-  const direction = input.direction ?? 0;
-  if (direction !== 0) pushInt32Field(flipBytes, 1, direction);
-
-  const rpcBytes: number[] = [];
-  pushMessageField(rpcBytes, STREAMER_RPC_WIRE_TAGS.flipScreenReq, new Uint8Array(flipBytes));
-
-  const envelopeBytes: number[] = [];
-  pushVarintField(envelopeBytes, 1, input.sequence);
-  pushVarintField(envelopeBytes, 2, input.timestampMs);
-  pushMessageField(envelopeBytes, STREAMER_PEER_WIRE_TAGS.rpcRequest, new Uint8Array(rpcBytes));
-  return new Uint8Array(envelopeBytes);
 }
 
 export function encodeStreamerEchoRequestMessage(input: EncodeStreamerEchoRequestMessageInput): Uint8Array {

@@ -15,7 +15,6 @@ import {
   decodeStreamerControlMessage,
   encodeStreamerEchoResponseMessage,
   encodeStreamerEchoRequestMessage,
-  encodeStreamerFlipScreenRequest,
   encodeStreamerInputMessage,
   encodeStreamerTextMessage,
   formatStreamerSignalControlFailure,
@@ -231,7 +230,6 @@ export interface BrowserRemoteSessionState {
   inboundVideo?: BrowserRemoteInboundVideoStats;
   remoteTrackCount: number;
   remoteDisplayId?: number;
-  remoteDisplayIds?: number[];
   remoteInputDisplayId?: number;
   selectedCandidatePair?: BrowserRemoteSelectedCandidatePair;
   stage: "idle" | "controlled" | "offered" | "connected";
@@ -271,8 +269,6 @@ export class BrowserRemoteSession {
   private remoteStream: MediaStream | null = null;
   private remoteDisplayId: number | undefined;
   private remoteInputDisplayId: number | undefined;
-  // 受控端自报的显示器 id 列表，顺序即它的屏幕顺序；用来把“第 N 路画面”映射成 display_id。
-  private remoteDisplayIds: number[] = [];
   private sequence = 1;
   private readonly heldKeyboardValues = new Set<string | number>();
   private readonly heldMouseButtons = new Set<StreamerMouseButtonKind | number>();
@@ -351,7 +347,6 @@ export class BrowserRemoteSession {
     this.remoteStream = null;
     this.remoteDisplayId = undefined;
     this.remoteInputDisplayId = undefined;
-    this.remoteDisplayIds = [];
     this.sequence = 1;
     this.heldKeyboardValues.clear();
     this.heldMouseButtons.clear();
@@ -488,85 +483,6 @@ export class BrowserRemoteSession {
     if (input.action === "keyboardPress") this.heldKeyboardValues.add(input.value);
     else if (input.action === "keyboardRelease") this.heldKeyboardValues.delete(input.value);
     this.sendInputData(this.buildKeyboardInput(input));
-  }
-
-  /**
-   * 请求受控端切换正在捕获的屏幕（官方客户端里是 Ctrl+Alt+←/→）。
-   * 走 control 通道的 rpc_request 信封；被控端不认这条请求时通常只是忽略，
-   * 不会影响已有的画面与输入，所以失败是安全的。
-   */
-  sendFlipScreen(direction = 0): void {
-    const label = STREAMER_DATA_CHANNEL_LABELS.control;
-    const channel = this.dataChannels.get(label);
-    if (!channel || channel.readyState !== "open") {
-      this.recordDebugEvent("data_send", "切屏失败：控制通道未就绪", {
-        label,
-        readyState: channel?.readyState,
-      });
-      return;
-    }
-    const sequence = this.sequence;
-    const timestampSeconds = this.streamerTimestampSeconds();
-    this.sequence += 1;
-    this.sendDataChannel(
-      label,
-      encodeStreamerFlipScreenRequest({ sequence, timestampMs: timestampSeconds, direction }),
-      {
-        summary: "请求切换捕获屏幕",
-        details: { sequence, timestampSeconds, direction, targetPlatform: this.targetPlatform },
-      },
-    );
-  }
-
-  /**
-   * 走键盘注入通道按一次 Ctrl+Alt+←/→，对应 UU 远程官方的「切换上一个/下一个屏幕」。
-   *
-   * 为什么不发 flip_screen_req：那条 RPC 的外层 tag(23) 和 direction 字段全是从
-   * 异常字符串表反推的，真机实测被控端没有任何反应。而组合键这条路复用的是
-   * 已经验证过的 kbd_press 通道，成本极低。
-   *
-   * 注意：官方文档把这个键归在「控制端功能快捷键」里，也就是可能只由主控端客户端
-   * 本地拦截、不转发给被控端。真正生效的前提是被控端的 UU 客户端也注册了这个
-   * 系统级热键。若实测无效，就说明前提不成立，得回到协议层（主动要第二路视频轨）。
-   */
-  sendCaptureFlipHotkey(direction: "prev" | "next" = "next"): void {
-    // Android keycode DPAD_LEFT=21 / DPAD_RIGHT=22。
-    this.sendCtrlAltArrow(direction === "prev" ? 21 : 22, "切屏热键");
-  }
-
-  /**
-   * Ctrl+Alt+↑：把被控端屏幕方向转回正常。
-   *
-   * 纯粹是保险。Intel 显卡驱动把 Ctrl+Alt+方向键注册成「旋转屏幕」，
-   * 和 UU 的切屏热键撞车；远控中撞上了画面会整个转 90°，人又不在机器旁边，
-   * 没有这个按钮就只能干瞪眼。
-   */
-  sendScreenRotationReset(): void {
-    // Android keycode DPAD_UP=19。
-    this.sendCtrlAltArrow(19, "屏幕旋转复位热键");
-  }
-
-  private sendCtrlAltArrow(arrowKeyCode: number, label: string): void {
-    if (!isDesktopPlatform(this.targetPlatform) && this.targetPlatform !== undefined) return;
-    // Android keycode：CTRL_LEFT=113、ALT_LEFT=57，方向键 19/21/22，
-    // 全都在 STREAMER_ANDROID_TO_WINDOWS_KEY_CODES 里，会被映射成对应的 VK。
-    const CTRL_LEFT = 113;
-    const ALT_LEFT = 57;
-    // 顺序要死：先按住两个修饰键，再点方向键，最后倒序释放。
-    // 中途抛错也必须把修饰键松开，否则被控端会一直卡着 Ctrl+Alt。
-    try {
-      this.sendKeyboardInput({ action: "keyboardPress", value: CTRL_LEFT });
-      this.sendKeyboardInput({ action: "keyboardPress", value: ALT_LEFT });
-      this.sendKeyboardInput({ action: "keyboardPress", value: arrowKeyCode });
-      this.sendKeyboardInput({ action: "keyboardRelease", value: arrowKeyCode });
-    } finally {
-      this.sendKeyboardInput({ action: "keyboardRelease", value: ALT_LEFT });
-      this.sendKeyboardInput({ action: "keyboardRelease", value: CTRL_LEFT });
-    }
-    this.recordDebugEvent("data_send", `发送${label}`, {
-      arrowKeyCode,
-      targetPlatform: this.targetPlatform,
-    });
   }
 
   // 直接上屏一段字符(text_input)。桌面被控端打字用它替代逐键 kbd_press，避免字母连发；
@@ -1273,58 +1189,14 @@ export class BrowserRemoteSession {
   }
 
   private applyRemoteDisplayCapability(event: RemoteSignalGatewayEvent): void {
-    const displayIds = extractRemoteDisplayIds(event.payload);
-    if (displayIds.length === 0) {
-      // forward_setting 也会带非显示器类设置项；只记键名，方便判断还能做哪些设置，不落值。
-      this.recordDebugEvent("signal", `${event.event}（无显示器信息）`, {
-        keys: collectPayloadKeys(event.payload),
-      });
-      return;
-    }
-    // 这条事件决定“受控端自报有几块屏”，是判断多屏能否实现的关键证据，每次都要留痕。
-    this.recordDebugEvent("signal", `受控端上报 ${displayIds.length} 块屏`, {
-      event: event.event,
-      displayIds,
-    });
-    const displayId = displayIds[0];
-    const idListChanged =
-      displayIds.length !== this.remoteDisplayIds.length ||
-      displayIds.some((value, index) => value !== this.remoteDisplayIds[index]);
-    if (idListChanged) {
-      this.remoteDisplayIds = [...displayIds];
-    }
-    if (displayId === undefined || displayId === this.remoteDisplayId) {
-      if (idListChanged) this.setState({ ...this.state, remoteDisplayIds: this.remoteDisplayIds });
-      return;
-    }
+    const displayId = extractRemoteDisplayId(event.payload);
+    if (displayId === undefined || displayId === this.remoteDisplayId) return;
     this.remoteDisplayId = displayId;
     this.setState({
       ...this.state,
       remoteDisplayId: displayId,
-      remoteDisplayIds: this.remoteDisplayIds,
     });
-  }
-
-  /**
-   * 把键鼠输入定向到第 index 路画面（多屏用）。
-   * 受控端报过 display_info 就用它的 id；没报过时按“第几路 = 第几块屏”兜底，
-   * 因为推流顺序通常就是屏幕顺序。传 0 且没有 id 信息时等于回到默认（不额外带 display_id）。
-   */
-  selectInputDisplayForIndex(index: number): void {
-    const known = this.remoteDisplayIds;
-    const fromList = known[index];
-    const nextInputDisplayId = fromList ?? (known.length === 0 && index === 0 ? undefined : index);
-    if (nextInputDisplayId === this.remoteInputDisplayId) return;
-    this.remoteInputDisplayId = nextInputDisplayId;
-    this.setState({
-      ...this.state,
-      remoteInputDisplayId: nextInputDisplayId,
-    });
-    this.recordDebugEvent("data_recv", "切换输入目标屏", {
-      sourceIndex: index,
-      inputDisplayId: nextInputDisplayId,
-      knownDisplayIds: known,
-    });
+    this.recordDebugEvent("signal", "记录受控端显示器", { displayId });
   }
 }
 
@@ -1525,9 +1397,8 @@ function summarizeSignalPayload(payload: unknown): unknown {
   });
 }
 
-function extractRemoteDisplayIds(payload: unknown): number[] {
+function extractRemoteDisplayId(payload: unknown): number | undefined {
   const payloads = Array.isArray(payload) ? payload : [payload];
-  const ids: number[] = [];
   for (const item of payloads) {
     const record = asRecord(item);
     const data = asRecord(record?.data) ?? record;
@@ -1537,30 +1408,10 @@ function extractRemoteDisplayIds(payload: unknown): number[] {
     for (const display of displayInfo) {
       const displayRecord = asRecord(display);
       const id = displayRecord ? numberValue(displayRecord.id) : undefined;
-      if (id !== undefined && !ids.includes(id)) ids.push(id);
+      if (id !== undefined) return id;
     }
   }
-  return ids;
-}
-
-// 只取键名（含一层嵌套），用于排查 forward_setting 到底带了哪些设置项，避免把值（可能含令牌）写进调试日志。
-function collectPayloadKeys(payload: unknown, depth = 0): string[] {
-  const payloads = Array.isArray(payload) ? payload : [payload];
-  const keys = new Set<string>();
-  for (const item of payloads) {
-    const record = asRecord(item);
-    if (!record) continue;
-    for (const [key, value] of Object.entries(record)) {
-      keys.add(key);
-      if (depth < 1) {
-        const nested = asRecord(value);
-        if (nested) {
-          for (const nestedKey of Object.keys(nested)) keys.add(`${key}.${nestedKey}`);
-        }
-      }
-    }
-  }
-  return [...keys].slice(0, 40);
+  return undefined;
 }
 
 function extractCandidateType(candidate: unknown): string | undefined {
