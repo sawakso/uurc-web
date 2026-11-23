@@ -111,9 +111,8 @@ function readAutoConnectPref(): boolean {
 }
 
 // 多屏实验开关：声明几个显示器槽位，受控端就可能按屏推几路视频轨。
-// 默认 1（与历史行为一致，不多占带宽）；想试多屏时在控制台执行
-//   localStorage.setItem("uurc.displaySlots", "2") 然后重连。
-// 想关掉：localStorage.removeItem("uurc.displaySlots")。
+// 默认 1（与历史行为一致，不多占带宽）；远控页「画面源」面板上有按钮可切到 2 路，
+// 也可以直接改 localStorage：localStorage.setItem("uurc.displaySlots", "2")，改完需重连。
 const DISPLAY_SLOTS_STORAGE_KEY = "uurc.displaySlots";
 
 function readDisplaySlotsPref(): number {
@@ -124,6 +123,14 @@ function readDisplaySlotsPref(): number {
     return Math.max(1, Math.min(STREAMER_MAX_BROWSER_DISPLAY_SLOTS, parsed));
   } catch {
     return 1;
+  }
+}
+
+function writeDisplaySlotsPref(slots: number): void {
+  try {
+    globalThis.localStorage?.setItem(DISPLAY_SLOTS_STORAGE_KEY, String(slots));
+  } catch {
+    // 隐私模式下写不进去也无所谓，本次会话内仍按内存里的值连接。
   }
 }
 
@@ -211,6 +218,7 @@ export function useRemoteControlController() {
   const [connectionRouteMode, setConnectionRouteMode] = useState<ConnectionRouteMode>("auto");
   const [autoConnect, setAutoConnect] = useState<boolean>(readAutoConnectPref);
   const [inputMode, setInputMode] = useState<RemoteInputMode>(readInputModePref);
+  const [displaySlots, setDisplaySlots] = useState<number>(readDisplaySlotsPref);
   const [remoteStageViewMode, setRemoteStageViewMode] = useState<RemoteStageViewMode>("fit");
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [signalServerIndex, setSignalServerIndex] = useState(0);
@@ -923,6 +931,13 @@ export function useRemoteControlController() {
     writeInputModePref(mode);
     // 切模式后把焦点重新落到正确的落点（text=隐藏输入框，native=画面本身）并立即生效。
     focusStageInput(mode);
+  }
+
+  // 槽位数只在下次连接时进握手消息，本次会话已经协商好的视频轨不会变，所以这里只存不改。
+  function handleDisplaySlotsChange(slots: number) {
+    const next = Math.max(1, Math.min(STREAMER_MAX_BROWSER_DISPLAY_SLOTS, Math.floor(slots) || 1));
+    setDisplaySlots(next);
+    writeDisplaySlotsPref(next);
   }
 
   function handleRemoteStagePointerDown(event: PointerEvent<HTMLDivElement>) {
@@ -1719,6 +1734,8 @@ export function useRemoteControlController() {
     onRemoteStageWheel: handleRemoteStageWheel,
     onRemoteShortcut: handleRemoteShortcut,
     onRemoteVideoSourceChange: setSelectedRemoteVideoId,
+    displaySlots,
+    onDisplaySlotsChange: handleDisplaySlotsChange,
     onRemoteVideoSample: handleRemoteVideoSample,
     onReadLocalClipboard: () => void handleReadLocalClipboard(),
     onReturnToDevices: () => void handleReturnToDevices(),

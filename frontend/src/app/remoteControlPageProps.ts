@@ -143,6 +143,10 @@ export interface RemoteControlPageProps {
   onRemoteStageWheel: (event: WheelEvent<HTMLDivElement>) => void;
   onRemoteShortcut: (shortcut: RemoteShortcut) => void;
   onRemoteVideoSourceChange: (videoId: string) => void;
+  // 显示器槽位数：1 = 只收主屏（默认）；>1 = 尝试让受控端按屏各推一路，供「画面源」面板切换。
+  // 改动在下一次连接生效，旧会话不会重协商。
+  displaySlots: number;
+  onDisplaySlotsChange: (slots: number) => void;
   onRemoteVideoSample: (videoId: string, sample: BrowserRemoteVideoElementSample) => void;
   onReadLocalClipboard: () => void;
   onReturnToDevices: () => void;

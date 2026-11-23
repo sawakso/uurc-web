@@ -3,11 +3,19 @@ import { Monitor } from "lucide-react";
 import type { RemoteControlPageProps } from "../app/remoteControlPageProps.js";
 
 export function RemoteVideoSourcePanel({
+  displaySlots,
+  onDisplaySlotsChange,
   onRemoteVideoSourceChange,
   primaryRemoteVideoId,
   remoteVideoSources,
-}: Pick<RemoteControlPageProps, "onRemoteVideoSourceChange" | "primaryRemoteVideoId" | "remoteVideoSources">) {
+}: Pick<
+  RemoteControlPageProps,
+  "displaySlots" | "onDisplaySlotsChange" | "onRemoteVideoSourceChange" | "primaryRemoteVideoId" | "remoteVideoSources"
+>) {
   const hasSources = remoteVideoSources.length > 0;
+  const multiSlotRequested = displaySlots > 1;
+  // 已经要了多路却没收到第二路：说明被控端没按槽位推流，跟界面无关，得如实说出来。
+  const multiSlotNotHonored = multiSlotRequested && hasSources && remoteVideoSources.length < displaySlots;
 
   return (
     <section className="control-insight-panel" aria-label="画面源">
@@ -37,6 +45,21 @@ export function RemoteVideoSourcePanel({
           <span>暂无画面源</span>
         )}
       </div>
+      <div className="video-source-slots" role="group" aria-label="显示器路数">
+        <button type="button" aria-pressed={!multiSlotRequested} onClick={() => onDisplaySlotsChange(1)}>
+          单屏
+        </button>
+        <button type="button" aria-pressed={multiSlotRequested} onClick={() => onDisplaySlotsChange(2)}>
+          多屏 2 路
+        </button>
+      </div>
+      {multiSlotRequested ? (
+        <small>
+          {multiSlotNotHonored
+            ? `已请求 ${displaySlots} 路，被控端只推了 ${remoteVideoSources.length} 路 —— 说明它不按槽位推流`
+            : `已请求 ${displaySlots} 路，改动在下一次连接生效`}
+        </small>
+      ) : null}
     </section>
   );
 }
