@@ -2,7 +2,11 @@ import { Monitor } from "lucide-react";
 import { useEffect, useRef, type PointerEvent as ReactPointerEvent } from "react";
 
 import type { RemoteControlPageProps } from "../app/remoteControlPageProps.js";
-import { getStageLocalCursorAnchor, toStageLocalCursorPoint } from "../remote/remoteControlUiModel.js";
+import {
+  projectToStageLocalCursor,
+  readStageMediaLayout,
+  type StageMediaLayout,
+} from "../remote/remoteControlUiModel.js";
 import { RemoteVideoTile } from "./RemoteVideoTile.js";
 
 export function RemoteControlStage({
@@ -64,32 +68,42 @@ export function RemoteControlStage({
   // 直接用 ref 写 transform，不走 setState：pointermove 频率很高，走 React 会让整个
   // 远控页每移动一次就重渲染一遍，手机上会明显掉帧。
   const localCursorRef = useRef<HTMLSpanElement | null>(null);
+  // 布局只在按下/换画面源时读一次，pointermove 全部走缓存。
+  // 每次移动都调 getBoundingClientRect 会强制同步重排，手机上会把主线程拖慢，
+  // 进而拖慢 100ms 的控制心跳，被控端误判主控离线就停推画面。
+  const stageLayoutRef = useRef<StageMediaLayout | null>(null);
 
-  function moveLocalCursor(stage: HTMLDivElement, clientX: number, clientY: number) {
+  function paintLocalCursor(clientX: number, clientY: number) {
     const node = localCursorRef.current;
-    if (!node) return;
-    const point = toStageLocalCursorPoint(stage, clientX, clientY);
-    if (!point) return;
+    const layout = stageLayoutRef.current;
+    if (!node || !layout) return;
+    const point = projectToStageLocalCursor(layout, clientX, clientY);
     node.style.transform = `translate3d(${point.x}px, ${point.y}px, 0)`;
     node.style.opacity = "1";
   }
 
-  // 刚连上时先摆到画面中心：不动鼠标也能看见指针在哪。切画面源后重摆一次，
+  // 刚连上时先摆到画面中心：不动鼠标也能看见指针在哪。切画面源后重读布局并重摆一次，
   // 因为不同屏的分辨率不同，内容区会跟着变。
   useEffect(() => {
     const node = localCursorRef.current;
     // 箭头的父节点就是 stage 本身，省得为了拿 DOM 再把 ref 往下传一层。
     const stage = node?.parentElement;
     if (!node || !stage) return;
-    const anchor = getStageLocalCursorAnchor(stage as HTMLDivElement);
-    if (!anchor) return;
-    node.style.transform = `translate3d(${anchor.x}px, ${anchor.y}px, 0)`;
+    const layout = readStageMediaLayout(stage as HTMLDivElement);
+    if (!layout) return;
+    stageLayoutRef.current = layout;
+    node.style.transform = `translate3d(${layout.mediaLeft + layout.mediaWidth / 2}px, ${layout.mediaTop + layout.mediaHeight / 2}px, 0)`;
     node.style.opacity = "1";
   }, [inputControlActive, hasRemoteVideo, localCursorVisible, primaryRemoteVideoId]);
 
   function syncLocalCursor(event: ReactPointerEvent<HTMLDivElement>) {
     if (!inputControlActive || !hasRemoteVideo || !localCursorVisible) return;
-    moveLocalCursor(event.currentTarget, event.clientX, event.clientY);
+    paintLocalCursor(event.clientX, event.clientY);
+  }
+
+  function refreshLocalCursorLayout(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!inputControlActive || !hasRemoteVideo || !localCursorVisible) return;
+    stageLayoutRef.current = readStageMediaLayout(event.currentTarget);
   }
 
   return (
@@ -105,6 +119,8 @@ export function RemoteControlStage({
       onPaste={onRemoteStagePaste}
       onPointerDown={(event) => {
         onRemoteStagePointerDown(event);
+        // 每次按下重读一次布局：页面可能刚滚动过，或视频分辨率刚变。
+        refreshLocalCursorLayout(event);
         syncLocalCursor(event);
       }}
       onPointerMove={(event) => {

@@ -34,7 +34,8 @@
   transform: translate3d(-40px, -40px, 0);
   transition: opacity 120ms ease;
   will-change: transform;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.55));
+  /* 不要用 filter: drop-shadow：它会让这个每帧移动的元素每帧走一次离屏合成，
+     手机上很贵，而主线程/合成线程一忙，100ms 控制心跳就会被拖慢。 */
 }
 
 /* 物理按键模式下焦点就在画面上，它只是一个键盘落点，不该出现焦点框。 */

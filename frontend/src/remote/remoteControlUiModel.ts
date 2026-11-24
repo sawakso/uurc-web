@@ -366,6 +366,50 @@ export function toRemoteMousePosition(event: RemotePointerLike): { absX: number;
  * 所以本地补画的指针必须按这个矩形换算，才能压在远端指针真正所在的位置上。
  * 返回 null 表示尺寸还没出来（画面未解码 / stage 未布局），调用方应跳过这次更新。
  */
+/** stage 与画面内容区的几何信息：媒体矩形相对 stage，stage 原点相对视口。 */
+export interface StageMediaLayout {
+  stageLeft: number;
+  stageTop: number;
+  mediaLeft: number;
+  mediaTop: number;
+  mediaWidth: number;
+  mediaHeight: number;
+}
+
+export function readStageMediaLayout(stage: HTMLDivElement): StageMediaLayout | null {
+  const layout = resolveStageMediaRect(stage);
+  if (!layout) return null;
+  const { stageRect, rendered } = layout;
+  return {
+    stageLeft: stageRect.left,
+    stageTop: stageRect.top,
+    mediaLeft: rendered.left - stageRect.left,
+    mediaTop: rendered.top - stageRect.top,
+    mediaWidth: rendered.width,
+    mediaHeight: rendered.height,
+  };
+}
+
+/**
+ * 按已缓存的布局把指针位置投影成 stage 局部坐标。
+ *
+ * 单独拆出来是为了让 pointermove 不必读 getBoundingClientRect：读布局会强制同步重排，
+ * 手机上一秒几十次足以拖慢主线程；而主线程一卡，100ms 的一次控制心跳就迟到，
+ * 被控端会判定主控离线并停推画面。一次按下时缓存一次布局就够了。
+ */
+export function projectToStageLocalCursor(
+  layout: StageMediaLayout,
+  clientX: number,
+  clientY: number,
+): { x: number; y: number } {
+  const relX = clamp((clientX - layout.stageLeft - layout.mediaLeft) / layout.mediaWidth, 0, 1);
+  const relY = clamp((clientY - layout.stageTop - layout.mediaTop) / layout.mediaHeight, 0, 1);
+  return {
+    x: layout.mediaLeft + relX * layout.mediaWidth,
+    y: layout.mediaTop + relY * layout.mediaHeight,
+  };
+}
+
 function resolveStageMediaRect(stage: HTMLDivElement): { stageRect: DOMRect; rendered: DOMRect } | null {
   const stageRect = stage.getBoundingClientRect();
   const video = stage.querySelector<HTMLVideoElement>('video[data-active="true"]') ?? stage.querySelector("video");
@@ -385,15 +429,9 @@ export function toStageLocalCursorPoint(
   clientX: number,
   clientY: number,
 ): { x: number; y: number } | null {
-  const layout = resolveStageMediaRect(stage);
+  const layout = readStageMediaLayout(stage);
   if (!layout) return null;
-  const { stageRect, rendered } = layout;
-  const relX = clamp((clientX - rendered.left) / rendered.width, 0, 1);
-  const relY = clamp((clientY - rendered.top) / rendered.height, 0, 1);
-  return {
-    x: rendered.left - stageRect.left + relX * rendered.width,
-    y: rendered.top - stageRect.top + relY * rendered.height,
-  };
+  return projectToStageLocalCursor(layout, clientX, clientY);
 }
 
 /** 画面内容区的正中心（stage 内坐标）：指针还没动过时先摆在这里，保证"一直看得见"。 */

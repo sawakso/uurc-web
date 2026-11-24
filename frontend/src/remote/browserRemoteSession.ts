@@ -56,6 +56,10 @@ export interface BrowserRemotePeerConnection {
   close?: () => void;
   getStats?: () => Promise<BrowserRemoteStatsReport>;
   restartIce?: () => void;
+  connectionState?: RTCPeerConnectionState;
+  iceConnectionState?: RTCIceConnectionState;
+  onconnectionstatechange?: ((event: Event) => void) | null;
+  oniceconnectionstatechange?: ((event: Event) => void) | null;
 }
 
 export interface BrowserRemoteDataChannel {
@@ -254,6 +258,11 @@ export class BrowserRemoteSession {
   private peer: BrowserRemotePeerConnection | null = null;
   private readonly dataChannels = new Map<StreamerDataChannelLabel, BrowserRemoteDataChannel>();
   private echoHeartbeatTimer: ReturnType<typeof setInterval> | undefined;
+  /** 上一次从控制通道收到被控端数据的时刻（ms）。用来区分"画面静止"和"真的断流"。 */
+  private lastInboundControlAtMs = 0;
+  /** 上一次心跳 tick 的时刻与上一次"心跳迟到"日志的时刻，用来量化主线程卡顿。 */
+  private lastHeartbeatTickAtMs = 0;
+  private lastHeartbeatLagDebugAtMs = 0;
   private lastEchoHeartbeatDebugAtMs = 0;
   private readonly lastDataReceiveDebugAtMs = new Map<StreamerDataChannelLabel, number>();
   private debugEventId = 1;
@@ -397,6 +406,20 @@ export class BrowserRemoteSession {
       void this.sendLocalCandidate(event.candidate?.toJSON?.() ?? null);
     };
     this.peer.ontrack = (event) => this.applyRemoteTrack(event);
+    // 之前完全没监听 ICE/连接状态，掉线时调试面板里一片空白，只能靠"画面不动了"猜。
+    // 这两个回调把状态迁移记进调试事件，是排查"到底断在哪一层"的唯一证据。
+    this.peer.onconnectionstatechange = () => {
+      this.recordDebugEvent("session", "PeerConnection 状态变化", {
+        connectionState: this.peer?.connectionState,
+        iceConnectionState: this.peer?.iceConnectionState,
+      });
+    };
+    this.peer.oniceconnectionstatechange = () => {
+      this.recordDebugEvent("session", "ICE 状态变化", {
+        iceConnectionState: this.peer?.iceConnectionState,
+        connectionState: this.peer?.connectionState,
+      });
+    };
 
     this.setState({
       appControlId: input.appControlId,
@@ -546,6 +569,7 @@ export class BrowserRemoteSession {
       },
       previousVideoElement: this.previousVideoElementSample,
       currentVideoElement: this.state.videoElement,
+      controlSilenceMs: this.controlSilenceMs(sampledAtMs),
     });
     this.previousStatsSample = {
       inboundVideo,
@@ -611,6 +635,7 @@ export class BrowserRemoteSession {
             },
             previousVideoElement: this.state.videoElement,
             currentVideoElement: nextPrimarySample,
+            controlSilenceMs: this.controlSilenceMs(this.now()),
           });
     this.setState({
       ...this.state,
@@ -896,6 +921,7 @@ export class BrowserRemoteSession {
       this.echoHeartbeatTimer = undefined;
     }
     this.lastEchoHeartbeatDebugAtMs = 0;
+    this.lastHeartbeatTickAtMs = 0;
   }
 
   private sendEchoHeartbeat(): void {
@@ -905,6 +931,21 @@ export class BrowserRemoteSession {
       this.stopEchoHeartbeat();
       return;
     }
+
+    // 心跳是 100ms 一条：定时器被主线程卡住就会迟到，而被控端正是靠它判断主控是否在线，
+    // 迟到久了会直接被判离线、停推画面。把迟到量记下来，"页面卡→掉线"这条链才有证据。
+    const tickNow = this.now();
+    if (this.lastHeartbeatTickAtMs > 0) {
+      const lagMs = tickNow - this.lastHeartbeatTickAtMs - BrowserRemoteSession.echoHeartbeatIntervalMs;
+      if (lagMs > 250 && tickNow - this.lastHeartbeatLagDebugAtMs > 5000) {
+        this.lastHeartbeatLagDebugAtMs = tickNow;
+        this.recordDebugEvent("data_send", "控制心跳被拖慢", {
+          lagMs: Math.round(lagMs),
+          intervalMs: BrowserRemoteSession.echoHeartbeatIntervalMs,
+        });
+      }
+    }
+    this.lastHeartbeatTickAtMs = tickNow;
 
     const sequence = this.sequence;
     const now = this.now();
@@ -946,11 +987,15 @@ export class BrowserRemoteSession {
   }
 
   private recordDataChannelMessage(label: StreamerDataChannelLabel, data: unknown): void {
+    const now = this.now();
+    // 只要控制通道还在来数据（心跳/Echo/剪贴板/统计），就认为链路是活的。
+    // 这个时间戳不写进 state：100ms 一条，写 state 会把整页重渲染一遍。
+    if (label === STREAMER_DATA_CHANNEL_LABELS.control) this.lastInboundControlAtMs = now || 1;
+
     const decodedControlMessage =
       label === STREAMER_DATA_CHANNEL_LABELS.control ? this.decodeControlDataChannelMessage(data) : undefined;
     if (decodedControlMessage) this.handleControlDataMessage(decodedControlMessage);
 
-    const now = this.now();
     const lastDebugAtMs = this.lastDataReceiveDebugAtMs.get(label) ?? 0;
     if (lastDebugAtMs > 0 && now - lastDebugAtMs < BrowserRemoteSession.dataReceiveDebugIntervalMs) return;
 
@@ -1104,6 +1149,12 @@ export class BrowserRemoteSession {
     });
   }
 
+  /** 距离上一次从控制通道收到数据的时长；还没收到过就返回 undefined（不参与判断）。 */
+  private controlSilenceMs(nowMs: number): number | undefined {
+    if (!this.lastInboundControlAtMs) return undefined;
+    return Math.max(0, nowMs - this.lastInboundControlAtMs);
+  }
+
   private resolveInputDisplayId(): number | undefined {
     if (this.remoteInputDisplayId !== undefined) return this.remoteInputDisplayId;
     return this.remoteDisplayId;
@@ -1216,6 +1267,13 @@ function diagnoseVideoFlow(input: {
   };
   previousVideoElement?: BrowserRemoteVideoElementSample;
   currentVideoElement?: BrowserRemoteVideoElementSample;
+  /**
+   * 距离上一次从控制通道收到被控端数据过去了多久（ms，未收到过则为 undefined）。
+   *
+   * 用途只有一个：区分"真的断流"和"画面本来就没动"。桌面静止时被控端会降低甚至停止出帧，
+   * 这跟断网在 RTP 增量上看起来一样；但控制通道如果还在持续来数据，说明链路是活的。
+   */
+  controlSilenceMs?: number;
 }): BrowserRemoteVideoFlowDiagnostics {
   const delta: BrowserRemoteVideoFlowDelta = {
     packetsReceived: diffNumber(input.previous?.inboundVideo?.packetsReceived, input.current.inboundVideo?.packetsReceived),
@@ -1279,6 +1337,19 @@ function diagnoseVideoFlow(input: {
       status: "decode_stalled",
       title: "RTP 仍在收包，解码帧未增长",
       detail: formatVideoFlowDelta(cleanDelta),
+      delta: cleanDelta,
+      updatedAtMs: input.nowMs,
+    };
+  }
+
+  // 断流还是"画面静止"：控制通道 4s 内还有数据 = 链路活着，只是这一屏没变化。
+  // 桌面静止时被控端本来就会降帧甚至暂停编码，按断流处理会误触发自动重连
+  // （连两次还会升级成中转，延迟更高），所以这里必须放过。
+  if (input.controlSilenceMs !== undefined && input.controlSilenceMs < 4000) {
+    return {
+      status: "receiving",
+      title: "画面静止（链路正常）",
+      detail: `控制通道 ${Math.round(input.controlSilenceMs / 100) / 10}s 前仍有数据 · ${formatVideoFlowDelta(cleanDelta)}`,
       delta: cleanDelta,
       updatedAtMs: input.nowMs,
     };

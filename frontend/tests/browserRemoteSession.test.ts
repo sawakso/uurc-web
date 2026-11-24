@@ -1682,6 +1682,40 @@ describe("BrowserRemoteSession", () => {
     });
   });
 
+  it("treats a still desktop as idle rather than a stall while the control channel is still alive", async () => {
+    let now = 1000;
+    const api = new FakeRemoteApi();
+    const peer = new FakePeerConnection();
+    const session = new BrowserRemoteSession({
+      api,
+      now: () => now,
+      createPeerConnection: (configuration) => {
+        peer.configuration = configuration;
+        return peer;
+      },
+    });
+    await session.start({
+      appControlId: "control-1",
+      appDataBase64: "Cg==",
+      streamerData: "{}",
+    });
+
+    peer.stats = makeInboundVideoStats({ packetsReceived: 100, bytesReceived: 90000, framesDecoded: 50 });
+    await session.refreshConnectionStats();
+
+    // 桌面静止：RTP 一点没涨，但控制通道刚收到被控端数据 —— 链路是活的，不能算断流。
+    // 按断流处理会触发自动重连，连两次还会升级成中转，延迟反而更高。
+    peer.stats = makeInboundVideoStats({ packetsReceived: 100, bytesReceived: 90000, framesDecoded: 50 });
+    now = 2500;
+    peer.channels.get(STREAMER_DATA_CHANNEL_LABELS.control)?.emitMessage(new Uint8Array([1]).buffer);
+    await session.refreshConnectionStats();
+
+    expect(session.getState().videoFlow).toMatchObject({
+      status: "receiving",
+      title: "画面静止（链路正常）",
+    });
+  });
+
   it("records browser video element samples for playback diagnostics", async () => {
     const api = new FakeRemoteApi();
     const peer = new FakePeerConnection();

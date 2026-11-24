@@ -207,6 +207,7 @@ export function useRemoteControlController() {
   const [autoReconnectEnabled, setAutoReconnectEnabled] = useState(true);
   const [autoReconnectAttemptCount, setAutoReconnectAttemptCount] = useState(0);
   const [decodeStalledStreak, setDecodeStalledStreak] = useState(0);
+  const [transportStalledStreak, setTransportStalledStreak] = useState(0);
   const [autoReconnectStatus, setAutoReconnectStatus] = useState("");
   const [inputControlEnabled, setInputControlEnabled] = useState(false);
   const [sdpTransportMode, setSdpTransportMode] = useState<SdpTransportMode>("gzip");
@@ -1311,11 +1312,13 @@ export function useRemoteControlController() {
       : controlChannelLabel;
   const decodeStalledPersisted =
     browserRemoteState.videoFlow?.status === "decode_stalled" && decodeStalledStreak >= 2;
+  // 断流判断同样要求连续两次采样（≈3s）：单次 1.5s 没有新包，可能只是桌面静止没变化，
+  // 一次就重连会让"你没动屏幕"变成"网络中断"，连两次还会升级成中转、延迟更高。
+  const transportStalledPersisted =
+    browserRemoteState.videoFlow?.status === "transport_stalled" && transportStalledStreak >= 2;
   const browserConnectionRecoverable =
     browserRemoteState.stage === "connected" &&
-    (controlChannelState === "closed" ||
-      browserRemoteState.videoFlow?.status === "transport_stalled" ||
-      decodeStalledPersisted);
+    (controlChannelState === "closed" || transportStalledPersisted || decodeStalledPersisted);
   const remoteRecoveryLabel = browserConnectionRecoverable
     ? controlChannelState === "closed"
       ? "控制连接已断开"
@@ -1343,6 +1346,9 @@ export function useRemoteControlController() {
     // 累计连续“解码停滞”采样数：要求持续 ≥2 次才触发自动恢复，避免偶发解码抖动误重连。
     setDecodeStalledStreak((streak) =>
       browserRemoteState.videoFlow?.status === "decode_stalled" ? streak + 1 : 0,
+    );
+    setTransportStalledStreak((streak) =>
+      browserRemoteState.videoFlow?.status === "transport_stalled" ? streak + 1 : 0,
     );
   }, [browserRemoteState.videoFlow]);
 
