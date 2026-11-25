@@ -1425,7 +1425,7 @@ async function handleFetch(input: string | URL | Request, init?: RequestInit): P
         signalHeaders: {
           "X-NRD-AUTH": "<redacted room token>",
           "X-NRD-CONTROLLING": "0",
-          streamer_version: "V3.1.14",
+          streamer_version: "V4.14.2",
           streamer_flag: "{\"sdp_flags\":{\"gzip_sdp\":false}}",
         },
         signalControl: {
@@ -1454,7 +1454,7 @@ async function handleFetch(input: string | URL | Request, init?: RequestInit): P
       signalHeaders: {
         "X-NRD-AUTH": "<redacted room token>",
         "X-NRD-CONTROLLING": "0",
-        streamer_version: "V3.1.14",
+        streamer_version: "V4.14.2",
         streamer_flag: "{\"sdp_flags\":{\"gzip_sdp\":false}}",
       },
       signalControl: {

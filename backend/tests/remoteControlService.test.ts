@@ -33,7 +33,7 @@ describe("RemoteControlService", () => {
       signalHeaders: {
         "X-NRD-AUTH": "<redacted room token>",
         "X-NRD-CONTROLLING": "0",
-        streamer_version: "V3.1.14",
+        streamer_version: "V4.14.2",
         streamer_flag: '{"sdp_flags":{"gzip_sdp":true}}',
       },
       signalEvents: [
@@ -62,7 +62,7 @@ describe("RemoteControlService", () => {
         text: "TEXT_DATA_CHANNEL",
       },
       connectOptions: {
-        appClientVersion: "4.23.0",
+        appClientVersion: "4.48.3",
         clientTypes: {
           Client_ANDROID: 2,
         },
@@ -115,7 +115,7 @@ describe("RemoteControlService", () => {
       headers: {
         "X-NRD-AUTH": "room-secret-token",
         "X-NRD-CONTROLLING": "0",
-        streamer_version: "V3.1.14",
+        streamer_version: "V4.14.2",
         streamer_flag: '{"sdp_flags":{"gzip_sdp":true}}',
       },
       timeoutMs: 12000,

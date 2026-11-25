@@ -92,7 +92,15 @@ export const STREAMER_SIGNAL_HEADER_KEYS = [
   "streamer_flag",
 ] as const;
 
-export const STREAMER_CLIENT_VERSION = "V3.1.14" as const;
+/**
+ * 串流协议(SDK)版本，作为 `streamer_version` 头随信令请求发给 UU 服务器。
+ *
+ * 取值必须跟当前官方客户端里 streamer.dll 的自报版本一致，否则服务器/被控端会以
+ * “版本过低”拒绝建立会话。取证办法（本机装了 UU 远程时）：
+ *   C:\Program Files\Netease\...\log\client\Sentry\*\__sentry-event  → streamer_version
+ * 2026-11-25 客户端升到 4.48.3 后，老值 V3.1.14 直接连不上，故同步为 V4.14.2。
+ */
+export const STREAMER_CLIENT_VERSION = "V4.14.2" as const;
 
 export const STREAMER_DEFAULT_SIGNAL_HEADER_VALUES = {
   "X-NRD-CONTROLLING": "0",
@@ -193,7 +201,13 @@ export const STREAMER_CLIENT_TYPES = {
   Client_MAC: 4,
 } as const;
 
-export const STREAMER_APP_CLIENT_VERSION = "4.23.0" as const;
+/**
+ * 声明给被控端的“主控端 App 版本”（connect_options.client_version, tag 12）。
+ *
+ * 与 streamer_version 一起构成版本门槛，被控端会据此判断主控端是不是太旧。
+ * 官方 Windows 客户端 2026-11-23 更新到 4.48.3.5946，故从 4.23.0 同步过来。
+ */
+export const STREAMER_APP_CLIENT_VERSION = "4.48.3" as const;
 
 export interface StreamerFeatureFlagField {
   tag: number;

@@ -134,10 +134,10 @@ describe("streamer protocol constants", () => {
       "streamer_version",
       "streamer_flag",
     ]);
-    expect(STREAMER_CLIENT_VERSION).toBe("V3.1.14");
+    expect(STREAMER_CLIENT_VERSION).toBe("V4.14.2");
     expect(STREAMER_DEFAULT_SIGNAL_HEADER_VALUES).toEqual({
       "X-NRD-CONTROLLING": "0",
-      streamer_version: "V3.1.14",
+      streamer_version: "V4.14.2",
     });
     expect(buildStreamerFlagHeader({ gzipSdp: true })).toBe('{"sdp_flags":{"gzip_sdp":true}}');
   });
@@ -360,7 +360,7 @@ describe("streamer protocol constants", () => {
     expect(buildStreamerSignalHeaders({ token: "room-token" })).toEqual({
       "X-NRD-AUTH": "room-token",
       "X-NRD-CONTROLLING": "0",
-      streamer_version: "V3.1.14",
+      streamer_version: "V4.14.2",
       streamer_flag: '{"sdp_flags":{"gzip_sdp":true}}',
     });
   });
@@ -716,7 +716,7 @@ describe("streamer protocol constants", () => {
       Client_WINDOWS: 3,
       Client_MAC: 4,
     });
-    expect(STREAMER_APP_CLIENT_VERSION).toBe("4.23.0");
+    expect(STREAMER_APP_CLIENT_VERSION).toBe("4.48.3");
     expect(STREAMER_DECODER_CAP_FIELDS).toEqual([
       { tag: 1, name: "fps", defaultValue: 0 },
       { tag: 2, name: "codec_type", defaultValue: "CodecType_UNKNOWN" },
@@ -873,10 +873,10 @@ describe("streamer protocol constants", () => {
       0x4a, 0x0c, 0x77, 0x65, 0x62, 0x2d, 0x64, 0x65, 0x76, 0x69, 0x63, 0x65, 0x2d, 0x31,
       0x50, 0x01,
       0x5a, 0x0e, 0x08, 0x02, 0x10, 0x01, 0x18, 0x02, 0x20, 0x02, 0x30, 0x02, 0x38, 0x02, 0x40, 0x03,
-      0x62, 0x06, 0x34, 0x2e, 0x32, 0x33, 0x2e, 0x30,
+      0x62, 0x06, 0x34, 0x2e, 0x34, 0x38, 0x2e, 0x33,
     ]);
     expect(buildDefaultStreamerConnectOptionsBase64({ deviceId: "web-device-1" })).toBe(
-      "CAEQ////////////ARoQCAIQAxgBIAEqBgiADxC4CCIMCDwQARiAHiDwECgBMggIgA8QuAgYPEACSgx3ZWItZGV2aWNlLTFQAVoOCAIQARgCIAIwAjgCQANiBjQuMjMuMA==",
+      "CAEQ////////////ARoQCAIQAxgBIAEqBgiADxC4CCIMCDwQARiAHiDwECgBMggIgA8QuAgYPEACSgx3ZWItZGV2aWNlLTFQAVoOCAIQARgCIAIwAjgCQANiBjQuNDguMw==",
     );
     expect(
       buildDefaultStreamerConnectOptionsBase64({
@@ -884,7 +884,7 @@ describe("streamer protocol constants", () => {
         controlConnectType: STREAMER_CONTROL_CONNECT_TYPES.ControlConnectType_Assistance,
       }),
     ).toBe(
-      "CAEQ////////////ARoQCAIQAxgBIAEqBgiADxC4CCIMCDwQARiAHiDwECgBMggIgA8QuAgYPEACSgx3ZWItZGV2aWNlLTFQAloOCAIQARgCIAIwAjgCQANiBjQuMjMuMA==",
+      "CAEQ////////////ARoQCAIQAxgBIAEqBgiADxC4CCIMCDwQARiAHiDwECgBMggIgA8QuAgYPEACSgx3ZWItZGV2aWNlLTFQAloOCAIQARgCIAIwAjgCQANiBjQuNDguMw==",
     );
   });
 
