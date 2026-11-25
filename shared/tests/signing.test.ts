@@ -48,8 +48,8 @@ describe("UU request signing", () => {
     ).toMatchObject({
       "X-Param-CHN": "official",
       "X-Param-PKGN": "com.netease.uuremote",
-      "X-Param-VC": "423000",
-      "X-Param-VN": "4.23.0",
+      "X-Param-VC": "448002",
+      "X-Param-VN": "4.48.2",
       "X-Param-client-id": "client-456",
       "X-Param-device-id": "device-789",
       "X-Param-user-id": "user-123",
